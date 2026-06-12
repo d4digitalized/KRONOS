@@ -27,7 +27,13 @@ Koncept a rozhodnutí: [docs/CONCEPT.md](docs/CONCEPT.md).
    update profiles set is_super_admin = true where email = 'tvuj@email.cz';
    ```
 
-6. `npm install && npm run dev` → http://localhost:3000
+6. **SMTP přes Resend (doporučeno)** — vestavěný Supabase e-mail má limit
+   ~2 zprávy/hod. Na [resend.com](https://resend.com) ověř doménu (SPF + DKIM
+   DNS záznamy) a vytvoř API klíč, pak v Supabase Settings → Authentication →
+   SMTP Settings zapni Custom SMTP: host `smtp.resend.com`, port `465`,
+   username `resend`, password = API klíč, sender z ověřené domény.
+   Žádná změna v kódu ani env appky není potřeba.
+7. `npm install && npm run dev` → http://localhost:3000
 
 ## Jak se to používá
 
