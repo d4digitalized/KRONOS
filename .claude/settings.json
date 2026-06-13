@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(claude mcp list 2>&1)"
+      "PowerShell(claude mcp list 2>&1)",
+      "PowerShell(git push origin main 2>&1)"
     ]
   }
 }

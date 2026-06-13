@@ -27,6 +27,33 @@ async function resolveOrInviteUser(
   return { userId: data.user.id, invited: true };
 }
 
+/** Uživatelé portálu, kteří zatím nejsou členy daného workspace. Jen pro adminy WS. */
+export async function listAddablePortalUsers(wsId: string): Promise<{
+  users?: { id: string; email: string; full_name: string }[];
+  error?: string;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Nejsi přihlášený." };
+
+  const { data: isAdmin } = await supabase.rpc("is_ws_admin", { ws: wsId });
+  if (!isAdmin) return { error: "Nemáš oprávnění." };
+
+  const admin = createAdminClient();
+  const [{ data: profiles }, { data: members }] = await Promise.all([
+    admin.from("profiles").select("id, email, full_name").order("full_name"),
+    admin.from("workspace_members").select("user_id").eq("workspace_id", wsId),
+  ]);
+
+  const memberIds = new Set((members ?? []).map((m) => m.user_id));
+  const users = (profiles ?? [])
+    .filter((p) => !memberIds.has(p.id))
+    .map((p) => ({ id: p.id, email: p.email, full_name: p.full_name }));
+  return { users };
+}
+
 export async function inviteMember(
   wsId: string,
   email: string,
