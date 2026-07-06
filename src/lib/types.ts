@@ -45,6 +45,7 @@ export type Task = {
   position: number;
   title: string;
   description: string;
+  /** legacy — řešitele nese tabulka task_assignees */
   assignee_id: string | null;
   due_date: string | null;
   completed_at: string | null;

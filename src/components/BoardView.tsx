@@ -74,6 +74,7 @@ export default function BoardView({
   const [editingCol, setEditingCol] = useState<string | null>(null);
   const [editColName, setEditColName] = useState("");
   const [cardLabels, setCardLabels] = useState<Record<string, Label[]>>({});
+  const [cardAssignees, setCardAssignees] = useState<Record<string, string[]>>({});
   const [subCounts, setSubCounts] = useState<Record<string, { done: number; total: number }>>({});
   const [wsLabels, setWsLabels] = useState<Label[]>([]);
   // filtry
@@ -90,7 +91,7 @@ export default function BoardView({
   );
 
   const load = useCallback(async () => {
-    const [colRes, taskRes, memRes, subRes, labelRes, tlRes] = await Promise.all([
+    const [colRes, taskRes, memRes, subRes, labelRes, tlRes, taRes] = await Promise.all([
       supabase
         .from("board_columns")
         .select("*")
@@ -116,6 +117,10 @@ export default function BoardView({
         .from("task_labels")
         .select("task_id, labels!inner(id, workspace_id, name)")
         .eq("labels.workspace_id", wsId),
+      supabase
+        .from("task_assignees")
+        .select("task_id, user_id, tasks!inner(project_id)")
+        .eq("tasks.project_id", projectId),
     ]);
     const cols = (colRes.data as BoardColumn[]) ?? [];
     const tasks = (taskRes.data as Task[]) ?? [];
@@ -137,6 +142,15 @@ export default function BoardView({
       byTask[row.task_id] = [...(byTask[row.task_id] ?? []), label];
     }
     setCardLabels(byTask);
+
+    const assigneesByTask: Record<string, string[]> = {};
+    for (const row of taRes.data ?? []) {
+      assigneesByTask[row.task_id] = [
+        ...(assigneesByTask[row.task_id] ?? []),
+        row.user_id as string,
+      ];
+    }
+    setCardAssignees(assigneesByTask);
     const byCol: CardsByCol = {};
     const lost: Task[] = [];
     for (const col of cols) byCol[col.id] = [];
@@ -340,7 +354,7 @@ export default function BoardView({
           t.description.toLowerCase().includes(q)) &&
         (fPriority === 0 || (t.priority ?? 4) === fPriority) &&
         (!fLabel || (cardLabels[t.id] ?? []).some((l) => l.id === fLabel)) &&
-        (!fAssignee || t.assignee_id === fAssignee)
+        (!fAssignee || (cardAssignees[t.id] ?? []).includes(fAssignee))
     );
   };
 
@@ -470,6 +484,7 @@ export default function BoardView({
                         task={task}
                         members={members}
                         labels={cardLabels[task.id]}
+                        assigneeIds={cardAssignees[task.id]}
                         subtaskCount={subCounts[task.id]}
                         onOpen={() => setOpenTask(task)}
                         onStart={() =>

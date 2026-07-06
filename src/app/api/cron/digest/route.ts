@@ -9,7 +9,6 @@ type DigestTask = {
   id: string;
   title: string;
   due_date: string;
-  assignee_id: string;
   workspace_id: string;
   project_id: string;
   projects: { name: string } | null;
@@ -35,18 +34,19 @@ export async function GET(req: Request) {
   const supabase = createAdminClient();
   const today = new Date().toISOString().slice(0, 10);
   const { data } = await supabase
-    .from("tasks")
-    .select("id, title, due_date, assignee_id, workspace_id, project_id, projects(name)")
-    .is("completed_at", null)
-    .is("parent_id", null)
-    .not("assignee_id", "is", null)
-    .lte("due_date", today);
-  const tasks = (data ?? []) as unknown as DigestTask[];
-  if (tasks.length === 0) return NextResponse.json({ users: 0, sent: 0 });
+    .from("task_assignees")
+    .select(
+      "user_id, tasks!inner(id, title, due_date, workspace_id, project_id, completed_at, parent_id, projects(name))"
+    )
+    .is("tasks.completed_at", null)
+    .is("tasks.parent_id", null)
+    .lte("tasks.due_date", today);
+  const rows = (data ?? []) as unknown as { user_id: string; tasks: DigestTask }[];
+  if (rows.length === 0) return NextResponse.json({ users: 0, sent: 0 });
 
   const byUser = new Map<string, DigestTask[]>();
-  for (const t of tasks) {
-    byUser.set(t.assignee_id, [...(byUser.get(t.assignee_id) ?? []), t]);
+  for (const row of rows) {
+    byUser.set(row.user_id, [...(byUser.get(row.user_id) ?? []), row.tasks]);
   }
 
   const userIds = [...byUser.keys()];

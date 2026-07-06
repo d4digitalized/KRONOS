@@ -6,10 +6,19 @@ import { priorityColor } from "@/lib/priority";
 import { projectColor } from "@/components/ProjectPicker";
 import type { Label, Membership, Task } from "@/lib/types";
 
+function initialsOf(name: string): string {
+  return name
+    .split(/[\s@]+/)
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase())
+    .join("");
+}
+
 export default function BoardCard({
   task,
   members,
   labels = [],
+  assigneeIds = [],
   subtaskCount,
   onOpen,
   onStart,
@@ -17,6 +26,7 @@ export default function BoardCard({
   task: Task;
   members: Membership[];
   labels?: Label[];
+  assigneeIds?: string[];
   subtaskCount?: { done: number; total: number };
   onOpen: () => void;
   onStart: () => void;
@@ -24,15 +34,13 @@ export default function BoardCard({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: task.id, data: { type: "card" } });
 
-  const assignee = members.find((m) => m.user_id === task.assignee_id);
   const isDone = !!task.completed_at;
   const overdue =
     !isDone && task.due_date && task.due_date < new Date().toISOString().slice(0, 10);
-  const initials = (assignee?.profiles?.full_name || assignee?.profiles?.email || "")
-    .split(/[\s@]+/)
-    .slice(0, 2)
-    .map((s) => s[0]?.toUpperCase())
-    .join("");
+  const assignees = assigneeIds
+    .map((id) => members.find((m) => m.user_id === id))
+    .filter(Boolean)
+    .map((m) => m!.profiles?.full_name || m!.profiles?.email || "?");
   const flag = priorityColor(task.priority ?? 4);
 
   return (
@@ -71,7 +79,7 @@ export default function BoardCard({
           ))}
         </div>
       )}
-      {(task.due_date || assignee || subtaskCount || !isDone) && (
+      {(task.due_date || assignees.length > 0 || subtaskCount || !isDone) && (
         <div className="mt-1.5 flex items-center gap-2">
           {task.due_date && (
             <span
@@ -97,9 +105,21 @@ export default function BoardCard({
           )}
           {task.description && <span className="text-xs text-ink-soft/50">≡</span>}
           <span className="flex-1" />
-          {initials && (
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-black/10 text-[10px] font-medium text-ink-soft">
-              {initials}
+          {assignees.length > 0 && (
+            <span className="flex -space-x-1.5" title={assignees.join(", ")}>
+              {assignees.slice(0, 3).map((name, i) => (
+                <span
+                  key={i}
+                  className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-black/10 text-[10px] font-medium text-ink-soft"
+                >
+                  {initialsOf(name)}
+                </span>
+              ))}
+              {assignees.length > 3 && (
+                <span className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-black/10 text-[9px] font-medium text-ink-soft">
+                  +{assignees.length - 3}
+                </span>
+              )}
             </span>
           )}
           {!isDone && (

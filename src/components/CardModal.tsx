@@ -24,7 +24,8 @@ export default function CardModal({
   const supabase = createClient();
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
-  const [assigneeId, setAssigneeId] = useState(task.assignee_id ?? "");
+  const [assignees, setAssignees] = useState<Set<string>>(new Set());
+  const [projectMembers, setProjectMembers] = useState<Set<string>>(new Set());
   const [dueDate, setDueDate] = useState(task.due_date ?? "");
   const [priority, setPriority] = useState(task.priority ?? 4);
   const [recurrence, setRecurrence] = useState<string>(task.recurrence ?? "");
@@ -80,11 +81,52 @@ export default function CardModal({
     setSubtasks((data as Task[]) ?? []);
   }, [supabase, task.id]);
 
+  const loadAssignees = useCallback(async () => {
+    const [mineRes, pmRes] = await Promise.all([
+      supabase.from("task_assignees").select("user_id").eq("task_id", task.id),
+      supabase
+        .from("project_members")
+        .select("user_id")
+        .eq("project_id", task.project_id),
+    ]);
+    setAssignees(new Set((mineRes.data ?? []).map((r) => r.user_id as string)));
+    setProjectMembers(new Set((pmRes.data ?? []).map((r) => r.user_id as string)));
+  }, [supabase, task.id, task.project_id]);
+
   useEffect(() => {
     loadComments();
     loadLabels();
     loadSubtasks();
-  }, [loadComments, loadLabels, loadSubtasks]);
+    loadAssignees();
+  }, [loadComments, loadLabels, loadSubtasks, loadAssignees]);
+
+  // přiřadit lze jen členy projektu (admini vidí všechny projekty)
+  const assignable = members.filter(
+    (m) => projectMembers.has(m.user_id) || m.role === "admin"
+  );
+
+  async function toggleAssignee(userId: string) {
+    const wasOn = assignees.has(userId);
+    setAssignees((prev) => {
+      const next = new Set(prev);
+      if (wasOn) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+    const { error } = wasOn
+      ? await supabase
+          .from("task_assignees")
+          .delete()
+          .eq("task_id", task.id)
+          .eq("user_id", userId)
+      : await supabase
+          .from("task_assignees")
+          .insert({ task_id: task.id, user_id: userId });
+    if (error) {
+      toast("Změna řešitele se nezdařila.", "error");
+      loadAssignees();
+    }
+  }
 
   async function save() {
     const { error } = await supabase
@@ -92,7 +134,6 @@ export default function CardModal({
       .update({
         title: title.trim() || task.title,
         description,
-        assignee_id: assigneeId || null,
         due_date: dueDate || null,
         priority,
         recurrence: (recurrence || null) as Recurrence | null,
@@ -271,20 +312,34 @@ export default function CardModal({
           className="input w-full px-3 py-2"
         />
 
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-ink-soft/70">Řešitelé:</span>
+          {assignable.length === 0 && (
+            <span className="text-xs text-ink-soft/50">
+              projekt zatím nemá členy
+            </span>
+          )}
+          {assignable.map((m) => {
+            const on = assignees.has(m.user_id);
+            const name = m.profiles?.full_name || m.profiles?.email || "?";
+            return (
+              <button
+                key={m.user_id}
+                onClick={() => toggleAssignee(m.user_id)}
+                aria-pressed={on}
+                className={`rounded-full border px-2 py-0.5 text-xs transition-colors ${
+                  on
+                    ? "border-transparent bg-accent text-white"
+                    : "border-line text-ink-soft hover:border-ink-soft/40"
+                }`}
+              >
+                {name}
+              </button>
+            );
+          })}
+        </div>
+
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={assigneeId}
-            onChange={(e) => setAssigneeId(e.target.value)}
-            aria-label="Řešitel"
-            className="input px-2"
-          >
-            <option value="">Nepřiřazeno</option>
-            {members.map((m) => (
-              <option key={m.user_id} value={m.user_id}>
-                {m.profiles?.full_name || m.profiles?.email}
-              </option>
-            ))}
-          </select>
           <input
             type="date"
             value={dueDate}
