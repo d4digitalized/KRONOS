@@ -42,6 +42,17 @@ body {
   border-radius: 4px;
 }
 
+/* tisk (pracovní výkaz) — bílý papír, A4 s okrajem */
+@page {
+  size: A4;
+  margin: 14mm;
+}
+@media print {
+  body {
+    background: #fff;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
