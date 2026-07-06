@@ -9,6 +9,8 @@ export type Profile = {
   avatar_initials?: string;
   /** #rrggbb; prázdné = odvodit z id */
   avatar_color?: string;
+  /** @handle bez zavináče, unikátní; nastavuje admin */
+  tag_name?: string;
 };
 
 export type Workspace = {

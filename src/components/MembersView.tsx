@@ -49,13 +49,14 @@ export default function MembersView({
   const [eName, setEName] = useState("");
   const [eInitials, setEInitials] = useState("");
   const [eColor, setEColor] = useState("");
+  const [eTag, setETag] = useState("");
 
   const load = useCallback(async () => {
     const [{ data }, addable] = await Promise.all([
       supabase
         .from("workspace_members")
         .select(
-          "user_id, role, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color)"
+          "user_id, role, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
         )
         .eq("workspace_id", wsId)
         .order("role"),
@@ -112,19 +113,32 @@ export default function MembersView({
     setEName(member.profiles?.full_name ?? "");
     setEInitials(member.profiles?.avatar_initials ?? "");
     setEColor(member.profiles?.avatar_color ?? "");
+    setETag(member.profiles?.tag_name ?? "");
   }
 
   async function saveEdit(member: Membership) {
+    // tag: bez zavináče, malými písmeny; povolena písmena/číslice/._
+    const tag = eTag.trim().replace(/^@/, "").toLowerCase();
+    if (tag && !/^[a-z0-9_.]{2,30}$/.test(tag)) {
+      toast("Tag smí mít 2–30 znaků: písmena, číslice, tečka, podtržítko.", "error");
+      return;
+    }
     const { error } = await supabase
       .from("profiles")
       .update({
         full_name: eName.trim(),
         avatar_initials: eInitials.trim().toUpperCase().slice(0, 3),
         avatar_color: eColor,
+        tag_name: tag,
       })
       .eq("id", member.user_id);
     if (error) {
-      toast("Uložení profilu se nezdařilo.", "error");
+      toast(
+        error.code === "23505"
+          ? `Tag @${tag} už používá někdo jiný.`
+          : "Uložení profilu se nezdařilo.",
+        "error"
+      );
       return;
     }
     setEditId(null);
@@ -231,6 +245,11 @@ export default function MembersView({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm">
                   {member.profiles?.full_name || member.profiles?.email}
+                  {member.profiles?.tag_name && (
+                    <span className="ml-1.5 text-xs text-accent">
+                      @{member.profiles.tag_name}
+                    </span>
+                  )}
                   {member.user_id === currentUserId && (
                     <span className="text-ink-soft/70"> (ty)</span>
                   )}
@@ -312,6 +331,19 @@ export default function MembersView({
                     title="Iniciály — prázdné se odvodí ze jména"
                     className="input w-16 text-center uppercase"
                   />
+                  <span className="inline-flex items-center gap-0.5">
+                    <span className="text-sm text-ink-soft/70">@</span>
+                    <input
+                      type="text"
+                      value={eTag}
+                      onChange={(e) => setETag(e.target.value)}
+                      maxLength={30}
+                      placeholder="tag"
+                      aria-label="Tag name (bez zavináče)"
+                      title="Unikátní tag, např. kostikova"
+                      className="input w-32 lowercase"
+                    />
+                  </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-xs text-ink-soft/70">Barva:</span>

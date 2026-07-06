@@ -18,6 +18,7 @@ Spustit po sobě, každou jen jednou (přeskoč ty, které už proběhly):
 | `0010_avatars.sql` | avatary uživatelů, admin editace profilů |
 | `0011_project_order.sql` | pořadí projektů nastavitelné adminem |
 | `0012_backlog.sql` | výchozí sloupec Backlog, karty bez sloupce do něj |
+| `0013_tag_name.sql` | tag name (@handle) uživatele, nastavuje admin |
 
 ## 2. Env proměnné na hostingu
 

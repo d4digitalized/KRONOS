@@ -3,7 +3,10 @@
     "allow": [
       "PowerShell(claude mcp list 2>&1)",
       "PowerShell(git push origin main 2>&1)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(nslookup -type=TXT resend._domainkey.digitalized.cz 8.8.8.8)",
+      "Bash(nslookup -type=MX send.digitalized.cz 8.8.8.8)",
+      "Bash(nslookup -type=TXT send.digitalized.cz 8.8.8.8)"
     ]
   }
 }
