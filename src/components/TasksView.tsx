@@ -7,9 +7,13 @@ import { toast } from "@/lib/toast";
 import { PRIORITIES, priorityColor } from "@/lib/priority";
 import { fmtDate } from "@/lib/format";
 import ProjectPicker, { ProjectDot } from "@/components/ProjectPicker";
+import Picker from "@/components/Picker";
 import Avatar from "@/components/Avatar";
 import CardModal from "@/components/CardModal";
 import type { Membership, Project, Task } from "@/lib/types";
+
+const USER_ICON =
+  "M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
 
 type Status = "active" | "done" | "all";
 
@@ -32,6 +36,8 @@ export default function TasksView({
   // zadání nového úkolu (admin)
   const [addTitle, setAddTitle] = useState("");
   const [addProject, setAddProject] = useState("");
+  const [addAssignee, setAddAssignee] = useState<string | null>(null);
+  const [addProjMembers, setAddProjMembers] = useState<Set<string>>(new Set());
   // filtry
   const [fText, setFText] = useState("");
   const [fProject, setFProject] = useState("");
@@ -77,6 +83,35 @@ export default function TasksView({
     load();
   }, [load]);
 
+  // řešitelem smí být jen člen zvoleného projektu (nebo admin ws)
+  useEffect(() => {
+    if (!addProject) {
+      setAddProjMembers(new Set());
+      setAddAssignee(null);
+      return;
+    }
+    supabase
+      .from("project_members")
+      .select("user_id")
+      .eq("project_id", addProject)
+      .then(({ data }) => {
+        const ids = new Set((data ?? []).map((r) => r.user_id as string));
+        setAddProjMembers(ids);
+        setAddAssignee((prev) => {
+          if (!prev) return prev;
+          const stillOk =
+            ids.has(prev) ||
+            members.find((m) => m.user_id === prev)?.role === "admin";
+          return stillOk ? prev : null;
+        });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addProject]);
+
+  const addAssignable = members.filter(
+    (m) => addProjMembers.has(m.user_id) || m.role === "admin"
+  );
+
   async function addTask(e: React.FormEvent) {
     e.preventDefault();
     const title = addTitle.trim();
@@ -100,16 +135,26 @@ export default function TasksView({
       .order("position", { ascending: false })
       .limit(1)
       .maybeSingle();
-    const { error } = await supabase.from("tasks").insert({
-      workspace_id: wsId,
-      project_id: addProject,
-      column_id: col?.id ?? null,
-      title,
-      position: posBetween(last?.position, undefined),
-    });
-    if (error) {
+    const { data: created, error } = await supabase
+      .from("tasks")
+      .insert({
+        workspace_id: wsId,
+        project_id: addProject,
+        column_id: col?.id ?? null,
+        title,
+        position: posBetween(last?.position, undefined),
+      })
+      .select("id")
+      .single();
+    if (error || !created) {
       toast("Úkol se nepodařilo přidat.", "error");
       return;
+    }
+    if (addAssignee) {
+      const { error: taError } = await supabase
+        .from("task_assignees")
+        .insert({ task_id: created.id, user_id: addAssignee });
+      if (taError) toast("Řešitele se nepodařilo přiřadit.", "error");
     }
     setAddTitle("");
     load();
@@ -233,6 +278,22 @@ export default function TasksView({
             value={addProject || null}
             onChange={(id) => setAddProject(id ?? "")}
             align="left"
+          />
+          <Picker
+            options={[
+              { id: null, label: "Bez řešitele" },
+              ...addAssignable.map((m) => ({
+                id: m.user_id as string | null,
+                label: m.profiles?.full_name || m.profiles?.email || "?",
+              })),
+            ]}
+            value={addAssignee}
+            onChange={setAddAssignee}
+            placeholder="Řešitel"
+            iconPath={USER_ICON}
+            ariaLabel="Řešitel"
+            align="left"
+            disabled={!addProject}
           />
           <button type="submit" className="btn-primary">
             Přidat úkol

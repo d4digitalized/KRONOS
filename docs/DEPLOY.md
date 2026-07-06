@@ -17,6 +17,7 @@ Spustit po sobě, každou jen jednou (přeskoč ty, které už proběhly):
 | `0009_notifications_inapp.sql` | in-app čtení notifikací (zvoneček) |
 | `0010_avatars.sql` | avatary uživatelů, admin editace profilů |
 | `0011_project_order.sql` | pořadí projektů nastavitelné adminem |
+| `0012_backlog.sql` | výchozí sloupec Backlog, karty bez sloupce do něj |
 
 ## 2. Env proměnné na hostingu
 
