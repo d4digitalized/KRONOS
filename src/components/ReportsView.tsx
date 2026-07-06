@@ -4,8 +4,19 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { entrySeconds, fmtDate, fmtDuration, fmtTime } from "@/lib/format";
 import { toast } from "@/lib/toast";
-import ProjectPicker from "@/components/ProjectPicker";
+import ProjectPicker, { projectColor } from "@/components/ProjectPicker";
 import type { Project, TimeEntry } from "@/lib/types";
+
+/** Tečka projektu; bez projektu = obrysová (jako v Pickeru). */
+function ProjectDot({ id }: { id: string | null }) {
+  return (
+    <span
+      className={`h-2.5 w-2.5 shrink-0 rounded-full ${id ? "" : "border border-ink-soft/40"}`}
+      style={id ? { background: projectColor(id) } : undefined}
+      aria-hidden
+    />
+  );
+}
 
 function isoDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -261,6 +272,7 @@ export default function ReportsView({ wsId }: { wsId: string }) {
                         >
                           <path d="m9 6 6 6-6 6" />
                         </svg>
+                        {kind === "project" && <ProjectDot id={row.id} />}
                         <span className="min-w-0 flex-1 truncate">{row.name}</span>
                         <span className="text-xs text-ink-soft/60">
                           {row.count}×
@@ -281,9 +293,12 @@ export default function ReportsView({ wsId }: { wsId: string }) {
       {!loading && detail && (
         <div className="panel">
           <div className="flex flex-wrap items-center gap-2 border-b border-line/70 px-3 py-2">
-            <h2 className="text-sm font-semibold">
-              {detail.kind === "person" ? "Záznamy — " : "Záznamy projektu — "}
-              {detail.name}
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              {detail.kind === "project" && <ProjectDot id={detail.id} />}
+              <span>
+                {detail.kind === "person" ? "Záznamy — " : "Záznamy projektu — "}
+                {detail.name}
+              </span>
             </h2>
             <span className="text-xs text-ink-soft/70">
               {detailEntries.length} záznamů ·{" "}

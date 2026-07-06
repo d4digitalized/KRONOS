@@ -3,7 +3,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { entrySeconds, fmtDuration, fmtTime } from "@/lib/format";
+import { projectColor } from "@/components/ProjectPicker";
 import type { TimeEntry } from "@/lib/types";
+
+/* [print-color-adjust:exact] — ať tiskárna/PDF tečky nevybělí */
+function ProjectDot({ id }: { id: string | null }) {
+  return (
+    <span
+      className={`inline-block h-2 w-2 shrink-0 rounded-full [-webkit-print-color-adjust:exact] [print-color-adjust:exact] ${
+        id ? "" : "border border-ink-soft/40"
+      }`}
+      style={id ? { background: projectColor(id) } : undefined}
+      aria-hidden
+    />
+  );
+}
 
 type Props = {
   wsId: string;
@@ -88,10 +102,16 @@ export default function VykazView({ wsId, userId, from, to, rate, unit }: Props)
   );
   const totalHours = totalSeconds / 3600;
 
-  const byProject = new Map<string, number>();
+  const byProject = new Map<string, { id: string | null; name: string; seconds: number }>();
   for (const entry of entries) {
-    const name = entry.projects?.name ?? "Bez projektu";
-    byProject.set(name, (byProject.get(name) ?? 0) + entrySeconds(entry.started_at, entry.stopped_at));
+    const key = entry.project_id ?? "";
+    const agg = byProject.get(key) ?? {
+      id: entry.project_id ?? null,
+      name: entry.projects?.name ?? "Bez projektu",
+      seconds: 0,
+    };
+    agg.seconds += entrySeconds(entry.started_at, entry.stopped_at);
+    byProject.set(key, agg);
   }
 
   const amount = rate === null ? null : unit === "hod" ? rate * totalHours : rate;
@@ -153,7 +173,12 @@ export default function VykazView({ wsId, userId, from, to, rate, unit }: Props)
                   <td className="whitespace-nowrap py-1.5 pr-3">
                     {fmtDay(entry.started_at)}
                   </td>
-                  <td className="py-1.5 pr-3">{entry.projects?.name ?? "Bez projektu"}</td>
+                  <td className="py-1.5 pr-3">
+                    <span className="inline-flex items-center gap-1.5">
+                      <ProjectDot id={entry.project_id ?? null} />
+                      {entry.projects?.name ?? "Bez projektu"}
+                    </span>
+                  </td>
                   <td className="py-1.5 pr-3">
                     {entry.tasks?.title || entry.description || "—"}
                   </td>
@@ -186,13 +211,18 @@ export default function VykazView({ wsId, userId, from, to, rate, unit }: Props)
             </h2>
             <table className="mt-1 w-auto min-w-64 text-sm">
               <tbody>
-                {[...byProject.entries()]
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([name, seconds]) => (
-                    <tr key={name} className="border-b border-line/50 last:border-0">
-                      <td className="py-1 pr-8">{name}</td>
+                {[...byProject.values()]
+                  .sort((a, b) => b.seconds - a.seconds)
+                  .map((project) => (
+                    <tr key={project.id ?? "none"} className="border-b border-line/50 last:border-0">
+                      <td className="py-1 pr-8">
+                        <span className="inline-flex items-center gap-1.5">
+                          <ProjectDot id={project.id} />
+                          {project.name}
+                        </span>
+                      </td>
                       <td className="py-1 text-right font-mono tabular-nums">
-                        {fmtDuration(seconds)} h
+                        {fmtDuration(project.seconds)} h
                       </td>
                     </tr>
                   ))}
