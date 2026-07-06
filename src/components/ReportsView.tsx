@@ -4,19 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { entrySeconds, fmtDate, fmtDuration, fmtTime } from "@/lib/format";
 import { toast } from "@/lib/toast";
-import ProjectPicker, { projectColor } from "@/components/ProjectPicker";
+import ProjectPicker, { ProjectDot } from "@/components/ProjectPicker";
 import type { Project, TimeEntry } from "@/lib/types";
-
-/** Tečka projektu; bez projektu = obrysová (jako v Pickeru). */
-function ProjectDot({ id }: { id: string | null }) {
-  return (
-    <span
-      className={`h-2.5 w-2.5 shrink-0 rounded-full ${id ? "" : "border border-ink-soft/40"}`}
-      style={id ? { background: projectColor(id) } : undefined}
-      aria-hidden
-    />
-  );
-}
 
 function isoDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

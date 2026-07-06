@@ -22,6 +22,26 @@ export function projectColor(id: string): string {
   return DOT_PALETTE[Math.abs(h) % DOT_PALETTE.length];
 }
 
+/** Tečka projektu; bez projektu (id null) = obrysová.
+    print-color-adjust ať ji tisk/PDF nevybělí. */
+export function ProjectDot({
+  id,
+  className = "h-2.5 w-2.5",
+}: {
+  id: string | null;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`inline-block shrink-0 rounded-full [-webkit-print-color-adjust:exact] [print-color-adjust:exact] ${
+        id ? "" : "border border-ink-soft/40"
+      } ${className}`}
+      style={id ? { background: projectColor(id) } : undefined}
+      aria-hidden
+    />
+  );
+}
+
 const FOLDER_ICON =
   "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z";
 

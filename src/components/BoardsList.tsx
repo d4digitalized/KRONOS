@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ProjectDot } from "@/components/ProjectPicker";
 import type { Project } from "@/lib/types";
 
 export default function BoardsList({
@@ -77,9 +78,10 @@ export default function BoardsList({
             <Link
               key={project.id}
               href={`/w/${wsId}/b/${project.id}`}
-              className="panel p-4 font-medium shadow-sm hover:border-accent/50"
+              className="flex items-center gap-2.5 panel p-4 font-medium shadow-sm hover:border-accent/50"
             >
-              {project.name}
+              <ProjectDot id={project.id} />
+              <span className="truncate">{project.name}</span>
             </Link>
           ))}
         </div>

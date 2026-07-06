@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ProjectDot } from "@/components/ProjectPicker";
 import type { Project } from "@/lib/types";
 
 export default function ProjectsView({ wsId }: { wsId: string }) {
@@ -80,6 +81,7 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
         )}
         {projects.map((project) => (
           <div key={project.id} className="flex items-center gap-2 px-3 py-2">
+            <ProjectDot id={project.id} />
             {editingId === project.id ? (
               <>
                 <input

@@ -30,6 +30,7 @@ import { toast } from "@/lib/toast";
 import type { BoardColumn, Membership, Task } from "@/lib/types";
 import BoardCard from "@/components/BoardCard";
 import CardModal from "@/components/CardModal";
+import { ProjectDot } from "@/components/ProjectPicker";
 
 type CardsByCol = Record<string, Task[]>;
 
@@ -291,7 +292,10 @@ export default function BoardView({
 
   return (
     <div className="space-y-3">
-      <h1 className="font-display text-lg font-semibold">{projectName}</h1>
+      <h1 className="flex items-center gap-2.5 font-display text-lg font-semibold">
+        <ProjectDot id={projectId} className="h-3 w-3" />
+        {projectName}
+      </h1>
 
       {orphans.length > 0 && (
         <div className="panel space-y-2 border-amber-300 bg-amber-50 p-3">

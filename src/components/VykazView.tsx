@@ -3,21 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { entrySeconds, fmtDuration, fmtTime } from "@/lib/format";
-import { projectColor } from "@/components/ProjectPicker";
+import { ProjectDot } from "@/components/ProjectPicker";
 import type { TimeEntry } from "@/lib/types";
-
-/* [print-color-adjust:exact] — ať tiskárna/PDF tečky nevybělí */
-function ProjectDot({ id }: { id: string | null }) {
-  return (
-    <span
-      className={`inline-block h-2 w-2 shrink-0 rounded-full [-webkit-print-color-adjust:exact] [print-color-adjust:exact] ${
-        id ? "" : "border border-ink-soft/40"
-      }`}
-      style={id ? { background: projectColor(id) } : undefined}
-      aria-hidden
-    />
-  );
-}
 
 type Props = {
   wsId: string;
