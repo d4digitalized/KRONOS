@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { entrySeconds, fmtDate, fmtDuration, fmtTime } from "@/lib/format";
-import type { TimeEntry } from "@/lib/types";
+import { toast } from "@/lib/toast";
+import ProjectPicker from "@/components/ProjectPicker";
+import type { Project, TimeEntry } from "@/lib/types";
 
 function isoDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -48,6 +50,7 @@ export default function ReportsView({ wsId }: { wsId: string }) {
   const [from, setFrom] = useState(firstOfMonth());
   const [to, setTo] = useState(today());
   const [entries, setEntries] = useState<TimeEntry[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [rate, setRate] = useState("");
@@ -73,6 +76,45 @@ export default function ReportsView({ wsId }: { wsId: string }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    supabase
+      .from("projects")
+      .select("*")
+      .eq("workspace_id", wsId)
+      .eq("archived", false)
+      .order("name")
+      .then(({ data }) => setProjects((data as Project[]) ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsId]);
+
+  /** Přeřazení záznamu do jiného projektu; karta z původního projektu se odpojí. */
+  async function reassign(entry: TimeEntry, projectId: string | null) {
+    if ((entry.project_id ?? null) === projectId) return;
+    const { error } = await supabase
+      .from("time_entries")
+      .update({ project_id: projectId, task_id: null })
+      .eq("id", entry.id);
+    if (error) {
+      toast("Přeřazení záznamu se nezdařilo.", "error");
+      return;
+    }
+    const projectName = projects.find((p) => p.id === projectId)?.name ?? null;
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.id === entry.id
+          ? {
+              ...e,
+              project_id: projectId,
+              projects: projectName ? { name: projectName } : null,
+              task_id: null,
+              tasks: null,
+            }
+          : e
+      )
+    );
+    toast(`Záznam přeřazen: ${projectName ?? "Bez projektu"}.`);
+  }
 
   const byPerson = new Map<string, Agg>();
   const byProject = new Map<string, Agg>();
@@ -289,44 +331,51 @@ export default function ReportsView({ wsId }: { wsId: string }) {
           {detailEntries.length === 0 ? (
             <p className="p-3 text-sm text-ink-soft/70">Žádné záznamy za období.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-line/70 text-left text-xs text-ink-soft">
-                    <th className="px-3 py-2 font-medium">Datum</th>
-                    <th className="px-3 py-2 font-medium">Popis</th>
-                    <th className="px-3 py-2 font-medium">
-                      {detail.kind === "person" ? "Projekt" : "Osoba"}
-                    </th>
-                    <th className="px-3 py-2 font-medium">Čas</th>
-                    <th className="px-3 py-2 text-right font-medium">Hodiny</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detailEntries.map((entry) => (
-                    <tr key={entry.id} className="border-b border-line/50 last:border-0">
-                      <td className="whitespace-nowrap px-3 py-2 text-ink-soft">
-                        {fmtDate(entry.started_at)}
-                      </td>
-                      <td className="max-w-64 truncate px-3 py-2">
-                        {entry.tasks?.title || entry.description || "—"}
-                      </td>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-line/70 text-left text-xs text-ink-soft">
+                  <th className="px-3 py-2 font-medium">Datum</th>
+                  <th className="px-3 py-2 font-medium">Popis</th>
+                  {detail.kind === "project" && (
+                    <th className="px-3 py-2 font-medium">Osoba</th>
+                  )}
+                  <th className="px-1 py-2 font-medium">Projekt</th>
+                  <th className="px-3 py-2 font-medium">Čas</th>
+                  <th className="px-3 py-2 text-right font-medium">Hodiny</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detailEntries.map((entry) => (
+                  <tr key={entry.id} className="border-b border-line/50 last:border-0">
+                    <td className="whitespace-nowrap px-3 py-2 text-ink-soft">
+                      {fmtDate(entry.started_at)}
+                    </td>
+                    <td className="max-w-64 truncate px-3 py-2">
+                      {entry.tasks?.title || entry.description || "—"}
+                    </td>
+                    {detail.kind === "project" && (
                       <td className="px-3 py-2 text-ink-soft">
-                        {detail.kind === "person"
-                          ? entry.projects?.name ?? "Bez projektu"
-                          : entry.profiles?.full_name || entry.profiles?.email || "?"}
+                        {entry.profiles?.full_name || entry.profiles?.email || "?"}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-ink-soft">
-                        {fmtTime(entry.started_at)} – {entry.stopped_at ? fmtTime(entry.stopped_at) : ""}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums">
-                        {fmtDuration(entrySeconds(entry.started_at, entry.stopped_at))}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                    )}
+                    <td className="px-1 py-1">
+                      <ProjectPicker
+                        projects={projects}
+                        value={entry.project_id}
+                        onChange={(id) => reassign(entry, id)}
+                        align="left"
+                      />
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-ink-soft">
+                      {fmtTime(entry.started_at)} – {entry.stopped_at ? fmtTime(entry.stopped_at) : ""}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums">
+                      {fmtDuration(entrySeconds(entry.started_at, entry.stopped_at))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       )}
