@@ -70,7 +70,7 @@ export default function BoardsList({
         <p className="p-4 text-sm text-ink-soft/70">
           {isAdmin
             ? "Žádné nástěnky. Založ první nahoře."
-            : "Žádné nástěnky. Požádej admina o založení projektu."}
+            : "Žádné nástěnky. Požádej admina o přidání na projekt."}
         </p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
