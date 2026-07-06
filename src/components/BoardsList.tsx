@@ -24,6 +24,7 @@ export default function BoardsList({
       .select("*")
       .eq("workspace_id", wsId)
       .eq("archived", false)
+      .order("position")
       .order("name");
     setProjects((data as Project[]) ?? []);
     setLoading(false);
@@ -36,7 +37,11 @@ export default function BoardsList({
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!newName.trim()) return;
-    await supabase.from("projects").insert({ workspace_id: wsId, name: newName.trim() });
+    await supabase.from("projects").insert({
+      workspace_id: wsId,
+      name: newName.trim(),
+      position: Math.max(0, ...projects.map((p) => p.position)) + 1,
+    });
     setNewName("");
     load();
   }

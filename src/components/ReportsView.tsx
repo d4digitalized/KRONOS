@@ -90,6 +90,7 @@ export default function ReportsView({ wsId }: { wsId: string }) {
       .select("*")
       .eq("workspace_id", wsId)
       .eq("archived", false)
+      .order("position")
       .order("name")
       .then(({ data }) => setProjects((data as Project[]) ?? []));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,8 +153,15 @@ export default function ReportsView({ wsId }: { wsId: string }) {
     project.count += 1;
     byProject.set(projectKey, project);
   }
-  const sorted = (m: Map<string, Agg>) =>
-    [...m.values()].sort((a, b) => b.seconds - a.seconds);
+  // lidé podle odpracovaného času; projekty podle pořadí nastaveného adminem
+  // (archivované za nimi, „Bez projektu" poslední)
+  const projectPos = new Map(projects.map((p) => [p.id, p.position]));
+  const sortedPeople = [...byPerson.values()].sort((a, b) => b.seconds - a.seconds);
+  const sortedProjects = [...byProject.values()].sort((a, b) => {
+    const pa = a.id === null ? Infinity : projectPos.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+    const pb = b.id === null ? Infinity : projectPos.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+    return pa - pb || b.seconds - a.seconds;
+  });
 
   const detailEntries = detail
     ? entries
@@ -229,8 +237,8 @@ export default function ReportsView({ wsId }: { wsId: string }) {
         <div className="grid gap-4 sm:grid-cols-2">
           {(
             [
-              ["Po lidech", "person", sorted(byPerson)],
-              ["Po projektech", "project", sorted(byProject)],
+              ["Po lidech", "person", sortedPeople],
+              ["Po projektech", "project", sortedProjects],
             ] as const
           ).map(([title, kind, rows]) => (
             <div key={title} className="panel">

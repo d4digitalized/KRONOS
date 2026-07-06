@@ -29,6 +29,7 @@ export type Project = {
   workspace_id: string;
   name: string;
   archived: boolean;
+  position: number;
 };
 
 export type BoardColumn = {
@@ -108,7 +109,7 @@ export type TimeEntry = {
   started_at: string;
   stopped_at: string | null;
   tasks?: { title: string } | null;
-  projects?: { name: string } | null;
+  projects?: { name: string; position?: number } | null;
   profiles?: {
     full_name: string;
     email: string;

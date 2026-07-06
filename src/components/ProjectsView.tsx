@@ -26,6 +26,7 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
         .select("*")
         .eq("workspace_id", wsId)
         .order("archived")
+        .order("position")
         .order("name"),
       supabase
         .from("workspace_members")
@@ -51,9 +52,42 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!newName.trim()) return;
-    await supabase.from("projects").insert({ workspace_id: wsId, name: newName.trim() });
+    await supabase.from("projects").insert({
+      workspace_id: wsId,
+      name: newName.trim(),
+      position: Math.max(0, ...projects.map((p) => p.position)) + 1,
+    });
     setNewName("");
     load();
+  }
+
+  /** Posun v rámci stejné skupiny (aktivní/archivované): prohodí position. */
+  async function move(project: Project, dir: -1 | 1) {
+    const group = projects.filter((p) => p.archived === project.archived);
+    const idx = group.findIndex((p) => p.id === project.id);
+    const other = group[idx + dir];
+    if (!other) return;
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === project.id
+          ? { ...p, position: other.position }
+          : p.id === other.id
+            ? { ...p, position: project.position }
+            : p
+      ).sort((a, b) =>
+        Number(a.archived) - Number(b.archived) ||
+        a.position - b.position ||
+        a.name.localeCompare(b.name, "cs")
+      )
+    );
+    const [r1, r2] = await Promise.all([
+      supabase.from("projects").update({ position: other.position }).eq("id", project.id),
+      supabase.from("projects").update({ position: project.position }).eq("id", other.id),
+    ]);
+    if (r1.error || r2.error) {
+      toast("Změna pořadí se nezdařila.", "error");
+      load();
+    }
   }
 
   async function rename(project: Project) {
@@ -145,6 +179,22 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
         {projects.map((project) => (
           <div key={project.id}>
             <div className="flex items-center gap-2 px-3 py-2">
+              <span className="flex flex-col">
+                <button
+                  onClick={() => move(project, -1)}
+                  aria-label={`Posunout ${project.name} nahoru`}
+                  className="rounded px-1 text-[10px] leading-3 text-ink-soft/50 hover:bg-black/5 hover:text-ink"
+                >
+                  ▲
+                </button>
+                <button
+                  onClick={() => move(project, 1)}
+                  aria-label={`Posunout ${project.name} dolů`}
+                  className="rounded px-1 text-[10px] leading-3 text-ink-soft/50 hover:bg-black/5 hover:text-ink"
+                >
+                  ▼
+                </button>
+              </span>
               <ProjectDot id={project.id} />
               {editingId === project.id ? (
                 <>

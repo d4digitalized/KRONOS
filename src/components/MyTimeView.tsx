@@ -57,6 +57,7 @@ export default function MyTimeView({
         .select("*")
         .eq("workspace_id", wsId)
         .eq("archived", false)
+        .order("position")
         .order("name"),
     ]);
     setEntries((entriesRes.data as TimeEntry[]) ?? []);

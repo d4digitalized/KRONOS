@@ -54,6 +54,7 @@ export default function TimerBar({
       .select("*")
       .eq("workspace_id", wsId)
       .eq("archived", false)
+      .order("position")
       .order("name")
       .then(({ data }) => setProjects((data as Project[]) ?? []));
     // eslint-disable-next-line react-hooks/exhaustive-deps

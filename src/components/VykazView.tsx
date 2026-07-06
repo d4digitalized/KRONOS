@@ -65,7 +65,7 @@ export default function VykazView({ wsId, userId, from, to, rate, unit }: Props)
     const [entriesRes, profileRes, wsRes] = await Promise.all([
       supabase
         .from("time_entries")
-        .select("id, started_at, stopped_at, description, project_id, projects(name), tasks(title)")
+        .select("id, started_at, stopped_at, description, project_id, projects(name, position), tasks(title)")
         .eq("workspace_id", wsId)
         .eq("user_id", userId)
         .not("stopped_at", "is", null)
@@ -99,13 +99,18 @@ export default function VykazView({ wsId, userId, from, to, rate, unit }: Props)
   );
   const totalHours = totalSeconds / 3600;
 
-  const byProject = new Map<string, { id: string | null; name: string; seconds: number }>();
+  const byProject = new Map<
+    string,
+    { id: string | null; name: string; seconds: number; position: number }
+  >();
   for (const entry of entries) {
     const key = entry.project_id ?? "";
     const agg = byProject.get(key) ?? {
       id: entry.project_id ?? null,
       name: entry.projects?.name ?? "Bez projektu",
       seconds: 0,
+      // „Bez projektu" poslední; pořadí projektů podle nastavení admina
+      position: entry.project_id ? entry.projects?.position ?? Number.MAX_SAFE_INTEGER : Infinity,
     };
     agg.seconds += entrySeconds(entry.started_at, entry.stopped_at);
     byProject.set(key, agg);
@@ -210,7 +215,7 @@ export default function VykazView({ wsId, userId, from, to, rate, unit }: Props)
             <table className="mt-1 w-auto min-w-64 text-sm">
               <tbody>
                 {[...byProject.values()]
-                  .sort((a, b) => b.seconds - a.seconds)
+                  .sort((a, b) => a.position - b.position || b.seconds - a.seconds)
                   .map((project) => (
                     <tr key={project.id ?? "none"} className="border-b border-line/50 last:border-0">
                       <td className="py-1 pr-8">
