@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import NotificationSettings from "@/components/NotificationSettings";
+import ApiTokens from "@/components/ApiTokens";
 
 export const metadata: Metadata = {
   title: "Nastavení — Toggled",
@@ -24,6 +25,7 @@ export default async function SettingsPage() {
         <h1 className="font-display text-lg font-semibold">Nastavení</h1>
       </div>
       <NotificationSettings userId={user.id} />
+      <ApiTokens />
     </main>
   );
 }

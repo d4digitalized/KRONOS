@@ -1,8 +1,19 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-// /api/cron chrání CRON_SECRET (Bearer), /api/inbound svix podpis webooku
-const PUBLIC_PATHS = ["/login", "/auth", "/api/cron", "/api/inbound"];
+// /api/cron chrání CRON_SECRET (Bearer), /api/inbound svix podpis webooku,
+// /api/mcp vlastní bearer API token (withMcpAuth), /api/oauth + /oauth + /.well-known
+// tvoří OAuth server (řeší si přihlášení sám) — všechny si auth řeší samy
+const PUBLIC_PATHS = [
+  "/login",
+  "/auth",
+  "/api/cron",
+  "/api/inbound",
+  "/api/mcp",
+  "/api/oauth",
+  "/oauth",
+  "/.well-known",
+];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

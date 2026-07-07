@@ -20,6 +20,8 @@ Spustit po sobě, každou jen jednou (přeskoč ty, které už proběhly):
 | `0012_backlog.sql` | výchozí sloupec Backlog, karty bez sloupce do něj |
 | `0013_tag_name.sql` | tag name (@handle) uživatele, nastavuje admin |
 | `0014_mentions.sql` | @zmínky v komentářích → notifikace |
+| `0015_api_tokens.sql` | osobní API tokeny pro MCP server (napojení do Clauda) |
+| `0016_oauth.sql` | OAuth server pro MCP (custom connector ve webovém/mobilním Claudovi) |
 
 ## 2. Env proměnné na hostingu
 
@@ -29,6 +31,7 @@ Spustit po sobě, každou jen jednou (přeskoč ty, které už proběhly):
 | `CRON_SECRET` | libovolný silný náhodný řetězec |
 | `EMAIL_FROM` | volitelné, default `Toggled <toggled@digitalized.cz>` |
 | `NEXT_PUBLIC_APP_URL` | volitelné, default `https://toggled.digitalized.cz` |
+| `SUPABASE_JWT_SECRET` | Supabase → Settings → API → JWT Settings → JWT Secret. Podpis tokenů pro MCP server. Jen server, NIKDY `NEXT_PUBLIC_`. |
 
 (Stávající `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 a `SUPABASE_SERVICE_ROLE_KEY` zůstávají.)
