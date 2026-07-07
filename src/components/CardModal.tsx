@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { startTimer } from "@/lib/timer";
 import { toast } from "@/lib/toast";
+import { confirmDialog } from "@/lib/confirm";
 import { pingNotifyEmails } from "@/lib/notify";
 import { PRIORITIES, RECURRENCE_OPTIONS, priorityColor } from "@/lib/priority";
 import { projectColor } from "@/components/ProjectPicker";
@@ -173,7 +174,11 @@ export default function CardModal({
   }
 
   async function remove() {
-    if (!confirm(`Smazat kartu „${task.title}" včetně záznamů času a komentářů?`)) return;
+    const ok = await confirmDialog({
+      title: "Smazat kartu?",
+      message: `Karta „${task.title}" se smaže včetně všech záznamů času a komentářů. Tuto akci nelze vrátit.`,
+    });
+    if (!ok) return;
     const { error } = await supabase.from("tasks").delete().eq("id", task.id);
     if (error) {
       setError("Smazat kartu může jen její autor nebo admin.");

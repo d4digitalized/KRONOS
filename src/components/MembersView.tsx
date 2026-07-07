@@ -6,11 +6,13 @@ import {
   inviteMember,
   listAddablePortalUsers,
   listAllUsers,
+  setMemberNotifyEmail,
   type AppUser,
 } from "@/app/actions/members";
 import Picker from "@/components/Picker";
 import Avatar, { avatarInitials } from "@/components/Avatar";
 import { toast } from "@/lib/toast";
+import { confirmDialog } from "@/lib/confirm";
 import type { Membership, Role } from "@/lib/types";
 
 /* stejná paleta jako tečky projektů — nabídka pro barvu avataru */
@@ -66,7 +68,7 @@ export default function MembersView({
       supabase
         .from("workspace_members")
         .select(
-          "user_id, role, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
+          "user_id, role, notify_email, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
         )
         .eq("workspace_id", wsId)
         .order("role"),
@@ -178,7 +180,12 @@ export default function MembersView({
 
   async function remove(member: Membership) {
     const name = member.profiles?.full_name || member.profiles?.email;
-    if (!confirm(`Odebrat ${name} z workspace?`)) return;
+    const ok = await confirmDialog({
+      title: "Odebrat člena?",
+      message: `${name} přijde o přístup k tomuto workspace.`,
+      confirmLabel: "Odebrat",
+    });
+    if (!ok) return;
     const { error } = await supabase
       .from("workspace_members")
       .delete()
@@ -453,25 +460,92 @@ export default function MembersView({
             </div>
 
             {editId === member.user_id && (
-              <ProfileEditForm
-                email={member.profiles?.email}
-                colorKey={member.user_id}
-                eName={eName}
-                setEName={setEName}
-                eInitials={eInitials}
-                setEInitials={setEInitials}
-                eColor={eColor}
-                setEColor={setEColor}
-                eTag={eTag}
-                setETag={setETag}
-                onCancel={() => setEditId(null)}
-                onSave={() => saveEdit(member.user_id)}
-              />
+              <>
+                <ProfileEditForm
+                  email={member.profiles?.email}
+                  colorKey={member.user_id}
+                  eName={eName}
+                  setEName={setEName}
+                  eInitials={eInitials}
+                  setEInitials={setEInitials}
+                  eColor={eColor}
+                  setEColor={setEColor}
+                  eTag={eTag}
+                  setETag={setETag}
+                  onCancel={() => setEditId(null)}
+                  onSave={() => saveEdit(member.user_id)}
+                />
+                <NotifyEmailEditor
+                  wsId={wsId}
+                  userId={member.user_id}
+                  initial={member.notify_email ?? ""}
+                  accountEmail={member.profiles?.email ?? ""}
+                  onSaved={load}
+                />
+              </>
             )}
           </div>
         ))}
       </div>
       )}
+    </div>
+  );
+}
+
+/** Per-firma notifikační e-mail člena. Vlastní stav, ukládá jen admin přes
+    setMemberNotifyEmail. Prázdný = notifikace jdou na účetní e-mail. */
+function NotifyEmailEditor({
+  wsId,
+  userId,
+  initial,
+  accountEmail,
+  onSaved,
+}: {
+  wsId: string;
+  userId: string;
+  initial: string;
+  accountEmail: string;
+  onSaved: () => void;
+}) {
+  const [val, setVal] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const dirty = val.trim() !== initial.trim();
+
+  async function save() {
+    setSaving(true);
+    const res = await setMemberNotifyEmail(wsId, userId, val.trim());
+    setSaving(false);
+    if (res.error) {
+      toast(res.error, "error");
+      return;
+    }
+    toast(val.trim() ? "Notifikační e-mail uložen." : "Notifikační e-mail zrušen.");
+    onSaved();
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-line/50 bg-black/[.015] px-3 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">Notifikační e-mail</p>
+        <p className="text-xs text-ink-soft/70">
+          Jen tato firma. Prázdné = chodí na {accountEmail || "účetní e-mail"}.
+        </p>
+      </div>
+      <input
+        type="email"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        placeholder={accountEmail || "email@firma.cz"}
+        aria-label="Notifikační e-mail pro tuto firmu"
+        className="input min-w-48 flex-1 px-2 py-1 text-sm"
+      />
+      <button
+        onClick={save}
+        disabled={saving || !dirty}
+        className="btn-primary px-3 py-1 text-xs disabled:opacity-60"
+      >
+        {saving ? "Ukládám…" : "Uložit"}
+      </button>
     </div>
   );
 }

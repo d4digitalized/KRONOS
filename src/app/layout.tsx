@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Familjen_Grotesk, Geist, Geist_Mono } from "next/font/google";
 import Toaster from "@/components/Toaster";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -36,6 +37,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         {children}
         <Toaster />
+        <ConfirmDialog />
       </body>
     </html>
   );

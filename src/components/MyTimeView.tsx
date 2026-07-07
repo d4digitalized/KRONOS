@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { dayKey, entrySeconds, fmtDuration, fmtTime } from "@/lib/format";
 import { toast } from "@/lib/toast";
+import { confirmDialog } from "@/lib/confirm";
 import Picker from "@/components/Picker";
 import ProjectPicker from "@/components/ProjectPicker";
 import type { Project, Task, TimeEntry } from "@/lib/types";
@@ -141,7 +142,11 @@ export default function MyTimeView({
   }
 
   async function remove(entry: TimeEntry) {
-    if (!confirm("Smazat tento záznam času?")) return;
+    const ok = await confirmDialog({
+      title: "Smazat záznam?",
+      message: "Tento záznam času se nenávratně smaže.",
+    });
+    if (!ok) return;
     await supabase.from("time_entries").delete().eq("id", entry.id);
     load();
   }

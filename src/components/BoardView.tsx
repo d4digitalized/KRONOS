@@ -27,6 +27,7 @@ import { createClient } from "@/lib/supabase/client";
 import { posBetween } from "@/lib/position";
 import { startTimer } from "@/lib/timer";
 import { toast } from "@/lib/toast";
+import { confirmDialog } from "@/lib/confirm";
 import { PRIORITIES } from "@/lib/priority";
 import type { BoardColumn, Label, Membership, Task } from "@/lib/types";
 import BoardCard from "@/components/BoardCard";
@@ -212,7 +213,11 @@ export default function BoardView({
       toast("Sloupec není prázdný — nejdřív přesuň karty jinam.", "error");
       return;
     }
-    if (!confirm(`Smazat sloupec „${col.name}"?`)) return;
+    const ok = await confirmDialog({
+      title: "Smazat sloupec?",
+      message: `Sloupec „${col.name}" se smaže.`,
+    });
+    if (!ok) return;
     const { error } = await supabase.from("board_columns").delete().eq("id", col.id);
     if (error) toast("Smazání se nepodařilo.", "error");
     load();
