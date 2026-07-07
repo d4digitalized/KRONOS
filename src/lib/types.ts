@@ -22,6 +22,8 @@ export type Membership = {
   workspace_id: string;
   user_id: string;
   role: Role;
+  /** per-firma notifikační e-mail; prázdný = účetní e-mail. Nastavuje admin. */
+  notify_email?: string;
   workspaces?: Workspace;
   profiles?: Profile;
 };

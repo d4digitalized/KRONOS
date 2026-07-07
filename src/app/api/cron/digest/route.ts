@@ -50,9 +50,13 @@ export async function GET(req: Request) {
   }
 
   const userIds = [...byUser.keys()];
-  const [profilesRes, prefsRes] = await Promise.all([
+  const [profilesRes, prefsRes, membersRes] = await Promise.all([
     supabase.from("profiles").select("id, email").in("id", userIds),
     supabase.from("notification_prefs").select("user_id, daily_digest").in("user_id", userIds),
+    supabase
+      .from("workspace_members")
+      .select("user_id, workspace_id, notify_email")
+      .in("user_id", userIds),
   ]);
   const emailById = new Map(
     (profilesRes.data ?? []).map((p) => [p.id as string, p.email as string])
@@ -60,32 +64,49 @@ export async function GET(req: Request) {
   const digestOff = new Set(
     (prefsRes.data ?? []).filter((p) => !p.daily_digest).map((p) => p.user_id as string)
   );
+  // per-firma notifikační e-mail (přebíjí účetní), klíč `user:workspace`
+  const notifyOverride = new Map<string, string>();
+  for (const m of membersRes.data ?? []) {
+    if (m.notify_email)
+      notifyOverride.set(`${m.user_id}:${m.workspace_id}`, m.notify_email as string);
+  }
 
   let sent = 0;
   for (const [userId, userTasks] of byUser) {
-    const email = emailById.get(userId);
-    if (!email || digestOff.has(userId)) continue;
+    if (digestOff.has(userId)) continue;
+    const account = emailById.get(userId);
 
-    const overdue = userTasks.filter((t) => t.due_date < today);
-    const dueToday = userTasks.filter((t) => t.due_date === today);
-    const sections = [
-      overdue.length
-        ? `<p style="margin:12px 0 4px;font-size:13px;font-weight:600;color:#c2410c;">Po termínu (${overdue.length})</p><ul style="margin:0;padding-left:18px;">${taskList(overdue)}</ul>`
-        : "",
-      dueToday.length
-        ? `<p style="margin:12px 0 4px;font-size:13px;font-weight:600;">Dnes (${dueToday.length})</p><ul style="margin:0;padding-left:18px;">${taskList(dueToday)}</ul>`
-        : "",
-    ].join("");
+    // rozděl karty podle výsledné adresy — bez override spadne vše na účetní
+    // e-mail (jeden souhrn jako dřív), s override se rozdělí na správné adresy
+    const byAddr = new Map<string, DigestTask[]>();
+    for (const t of userTasks) {
+      const addr = notifyOverride.get(`${userId}:${t.workspace_id}`) ?? account;
+      if (!addr) continue;
+      byAddr.set(addr, [...(byAddr.get(addr) ?? []), t]);
+    }
 
-    try {
-      await sendEmail(
-        email,
-        `Toggled: ${userTasks.length} ${userTasks.length === 1 ? "karta" : userTasks.length < 5 ? "karty" : "karet"} k dnešku`,
-        emailLayout("Tvůj denní přehled", sections)
-      );
-      sent += 1;
-    } catch (err) {
-      console.error("digest cron:", err);
+    for (const [addr, tasks] of byAddr) {
+      const overdue = tasks.filter((t) => t.due_date < today);
+      const dueToday = tasks.filter((t) => t.due_date === today);
+      const sections = [
+        overdue.length
+          ? `<p style="margin:12px 0 4px;font-size:13px;font-weight:600;color:#c2410c;">Po termínu (${overdue.length})</p><ul style="margin:0;padding-left:18px;">${taskList(overdue)}</ul>`
+          : "",
+        dueToday.length
+          ? `<p style="margin:12px 0 4px;font-size:13px;font-weight:600;">Dnes (${dueToday.length})</p><ul style="margin:0;padding-left:18px;">${taskList(dueToday)}</ul>`
+          : "",
+      ].join("");
+
+      try {
+        await sendEmail(
+          addr,
+          `Toggled: ${tasks.length} ${tasks.length === 1 ? "karta" : tasks.length < 5 ? "karty" : "karet"} k dnešku`,
+          emailLayout("Tvůj denní přehled", sections)
+        );
+        sent += 1;
+      } catch (err) {
+        console.error("digest cron:", err);
+      }
     }
   }
 

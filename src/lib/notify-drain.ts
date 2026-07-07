@@ -73,9 +73,13 @@ export async function drainNotifications(): Promise<{
   if (queue.length === 0) return { processed: 0, sent: 0 };
 
   const userIds = [...new Set(queue.map((n) => n.user_id))];
-  const [profilesRes, prefsRes] = await Promise.all([
+  const [profilesRes, prefsRes, membersRes] = await Promise.all([
     supabase.from("profiles").select("id, email").in("id", userIds),
     supabase.from("notification_prefs").select("*").in("user_id", userIds),
+    supabase
+      .from("workspace_members")
+      .select("user_id, workspace_id, notify_email")
+      .in("user_id", userIds),
   ]);
   const emailById = new Map(
     (profilesRes.data ?? []).map((p) => [p.id as string, p.email as string])
@@ -83,6 +87,12 @@ export async function drainNotifications(): Promise<{
   const prefsById = new Map(
     (prefsRes.data ?? []).map((p) => [p.user_id as string, p])
   );
+  // per-firma notifikační e-mail (přebíjí účetní), klíč `user:workspace`
+  const notifyOverride = new Map<string, string>();
+  for (const m of membersRes.data ?? []) {
+    if (m.notify_email)
+      notifyOverride.set(`${m.user_id}:${m.workspace_id}`, m.notify_email as string);
+  }
 
   let sent = 0;
   let processed = 0;
@@ -97,7 +107,9 @@ export async function drainNotifications(): Promise<{
     if (!claimed?.length) continue;
     processed += 1;
 
-    const email = emailById.get(n.user_id);
+    const email =
+      notifyOverride.get(`${n.user_id}:${n.workspace_id}`) ??
+      emailById.get(n.user_id);
     const prefs = prefsById.get(n.user_id);
     const wants =
       n.kind === "assigned"

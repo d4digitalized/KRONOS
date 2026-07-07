@@ -137,6 +137,40 @@ export async function listAllUsers(): Promise<{
   return { users };
 }
 
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/** Nastaví (nebo vymaže) notifikační e-mail člena pro danou firmu.
+    Prázdný string = notifikace půjdou na účetní e-mail. Jen admin workspace. */
+export async function setMemberNotifyEmail(
+  wsId: string,
+  userId: string,
+  email: string
+): Promise<{ ok?: true; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Nejsi přihlášený." };
+
+  const { data: isAdmin } = await supabase.rpc("is_ws_admin", { ws: wsId });
+  if (!isAdmin) return { error: "Notifikační e-mail nastavuje jen admin." };
+
+  const normalized = email.trim().toLowerCase();
+  if (normalized && !EMAIL_RE.test(normalized))
+    return { error: "Neplatný e-mail." };
+
+  // přes service-role: RLS update na workspace_members je jen pro super-admina,
+  // oprávnění tu hlídá kontrola is_ws_admin výše
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("workspace_members")
+    .update({ notify_email: normalized })
+    .eq("workspace_id", wsId)
+    .eq("user_id", userId);
+  if (error) return { error: "Uložení se nezdařilo." };
+  return { ok: true };
+}
+
 export async function inviteMember(
   wsId: string,
   email: string,
