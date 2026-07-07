@@ -34,8 +34,8 @@ function compose(n: QueueRow): { subject: string; html: string } {
     return {
       subject: `Přiřazená karta: ${n.task_title}`,
       html: emailLayout(
-        "Máš novou kartu",
-        `<p style="margin:0;font-size:14px;">${actor} ti přiřadil(a) kartu <strong>„${title}“</strong>.</p>${button}${replyHint}`
+        `Nová karta: ${title}`,
+        `<p style="margin:0;font-size:14px;">${actor} ti přiřadil(a) tuto kartu.</p>${button}${replyHint}`
       ),
     };
   }
@@ -44,16 +44,16 @@ function compose(n: QueueRow): { subject: string; html: string } {
     return {
       subject: `Zmínka: ${n.task_title}`,
       html: emailLayout(
-        "Někdo tě zmínil",
-        `<p style="margin:0 0 8px;font-size:14px;">${actor} tě zmínil(a) v komentáři ke kartě <strong>„${title}“</strong>:</p>${quoted}${button}${replyHint}`
+        `Zmínka na kartě: ${title}`,
+        `<p style="margin:0 0 8px;font-size:14px;">${actor} tě zmínil(a) v komentáři:</p>${quoted}${button}${replyHint}`
       ),
     };
   }
   return {
     subject: `Nový komentář: ${n.task_title}`,
     html: emailLayout(
-      "Nový komentář",
-      `<p style="margin:0 0 8px;font-size:14px;">${actor} komentoval(a) kartu <strong>„${title}“</strong>:</p>${quoted}${button}${replyHint}`
+      `Komentář na kartě: ${title}`,
+      `<p style="margin:0 0 8px;font-size:14px;">${actor} napsal(a) komentář:</p>${quoted}${button}${replyHint}`
     ),
   };
 }
