@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { startTimer } from "@/lib/timer";
 import { toast } from "@/lib/toast";
+import { pingNotifyEmails } from "@/lib/notify";
 import { PRIORITIES, RECURRENCE_OPTIONS, priorityColor } from "@/lib/priority";
 import { projectColor } from "@/components/ProjectPicker";
 import Avatar from "@/components/Avatar";
@@ -144,7 +145,9 @@ export default function CardModal({
     if (error) {
       toast("Změna řešitele se nezdařila.", "error");
       loadAssignees();
+      return;
     }
+    if (!wasOn) pingNotifyEmails();
   }
 
   async function save() {
@@ -165,6 +168,7 @@ export default function CardModal({
       setError("Uložení se nezdařilo.");
       return;
     }
+    pingNotifyEmails(); // dokončení opakované karty přiřazuje další výskyt
     onChanged();
   }
 
@@ -266,6 +270,7 @@ export default function CardModal({
       body: newComment.trim(),
     });
     setNewComment("");
+    pingNotifyEmails();
     loadComments();
   }
 

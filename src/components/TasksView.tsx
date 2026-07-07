@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { posBetween } from "@/lib/position";
 import { toast } from "@/lib/toast";
+import { pingNotifyEmails } from "@/lib/notify";
 import { PRIORITIES, priorityColor } from "@/lib/priority";
 import { fmtDate } from "@/lib/format";
 import ProjectPicker, { ProjectDot } from "@/components/ProjectPicker";
@@ -155,6 +156,7 @@ export default function TasksView({
         .from("task_assignees")
         .insert({ task_id: created.id, user_id: addAssignee });
       if (taError) toast("Řešitele se nepodařilo přiřadit.", "error");
+      else pingNotifyEmails();
     }
     setAddTitle("");
     load();
@@ -166,6 +168,7 @@ export default function TasksView({
       .update({ completed_at: task.completed_at ? null : new Date().toISOString() })
       .eq("id", task.id);
     if (error) toast("Uložení se nezdařilo.", "error");
+    else pingNotifyEmails(); // opakovaná karta může přiřadit další výskyt
     load();
   }
 

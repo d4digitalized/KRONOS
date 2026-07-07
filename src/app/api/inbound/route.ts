@@ -7,6 +7,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseReplyAddress } from "@/lib/email";
+import { drainNotifications } from "@/lib/notify-drain";
 
 /** Svix podpis: HMAC-SHA256(base64 klíč, "{id}.{timestamp}.{payload}"). */
 function verifySvix(headers: Headers, payload: string): boolean {
@@ -113,5 +114,7 @@ export async function POST(req: Request) {
     console.error("inbound: insert comment failed", error);
     return new Response("Insert failed", { status: 500 });
   }
-  return NextResponse.json({ ok: true });
+  // komentář založil notifikace → rovnou odeslat e-maily ostatním
+  const drained = await drainNotifications();
+  return NextResponse.json({ ok: true, ...drained });
 }

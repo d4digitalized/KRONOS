@@ -42,33 +42,32 @@ a `SUPABASE_SERVICE_ROLE_KEY` zůstávají.)
 2. Nastavit DNS záznamy, které Resend vypíše (MX + TXT/DKIM), počkat na ověření.
 3. Vytvořit API klíč → `RESEND_API_KEY`.
 
-## 4. Plánované odesílání (pg_cron v Supabase)
+## 4. Odesílání e-mailů — bez nastavování v Supabase
 
-Repo záměrně nemá `vercel.json` — crony jedou z databáze, takže fungují na
-jakémkoli hostingu i plánu. V Supabase: **Database → Extensions** zapnout
-`pg_cron` a `pg_net`, potom v SQL Editoru (doplň svůj `CRON_SECRET`):
+E-maily odesílá aplikace sama, okamžitě po akci: klient po komentáři /
+přiřazení / dokončení karty zavolá `/api/notify/run` (autorizace
+přihlášením), server vyprázdní frontu přes Resend. Řádky fronty se
+atomicky zamlouvají, souběh ani opakované volání nevadí. **V Supabase
+není potřeba pg_cron, pg_net ani žádný trigger na odesílání.**
+
+Stačí env `RESEND_API_KEY` na hostingu (krok 2). `CRON_SECRET` slouží už
+jen pro podpis Reply-To tokenů a ruční vyvolání
+(`curl -H "Authorization: Bearer …" …/api/cron/notify`).
+
+Pokud jsi dřív založil cron joby / trigger podle starší verze tohoto
+návodu, ukliď je:
 
 ```sql
--- fronta notifikací (přiřazení, komentáře) — každých 10 minut
-select cron.schedule(
-  'toggled-notify', '*/10 * * * *',
-  $$ select net.http_get(
-       url := 'https://toggled.digitalized.cz/api/cron/notify',
-       headers := '{"Authorization": "Bearer SEM_CRON_SECRET"}'::jsonb) $$
-);
-
--- denní přehled termínů — po–pá 4:00 UTC (6:00 SELČ)
-select cron.schedule(
-  'toggled-digest', '0 4 * * 1-5',
-  $$ select net.http_get(
-       url := 'https://toggled.digitalized.cz/api/cron/digest',
-       headers := '{"Authorization": "Bearer SEM_CRON_SECRET"}'::jsonb) $$
-);
+drop trigger if exists on_notification_email on public.notifications;
+drop function if exists public.notify_email_push();
+select cron.unschedule('toggled-notify')
+  where exists (select 1 from cron.job where jobname = 'toggled-notify');
+select cron.unschedule('toggled-digest')
+  where exists (select 1 from cron.job where jobname = 'toggled-digest');
 ```
 
-Kontrola: `select * from cron.job;` a ručně
-`curl -H "Authorization: Bearer SEM_CRON_SECRET" https://toggled.digitalized.cz/api/cron/notify`
-→ má vrátit JSON `{"processed":…,"sent":…}`.
+Volitelný ranní digest termínů (jediné, co ze své podstaty potřebuje
+plánovač) lze kdykoli později zapnout přes pg_cron + `/api/cron/digest`.
 
 ## 5. Odpovědi na e-maily → komentář na kartě (Resend inbound)
 
