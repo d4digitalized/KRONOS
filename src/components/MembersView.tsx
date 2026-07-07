@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { inviteMember, listAddablePortalUsers } from "@/app/actions/members";
+import {
+  inviteMember,
+  listAddablePortalUsers,
+  listAllUsers,
+  type AppUser,
+} from "@/app/actions/members";
 import Picker from "@/components/Picker";
 import Avatar, { avatarInitials } from "@/components/Avatar";
 import { toast } from "@/lib/toast";
@@ -44,6 +49,11 @@ export default function MembersView({
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, startTransition] = useTransition();
+  // přepínač seznamu: členové této firmy × všichni uživatelé aplikace (jen super-admin)
+  const [tab, setTab] = useState<"workspace" | "all">("workspace");
+  const [allUsers, setAllUsers] = useState<AppUser[] | null>(null);
+  const [allLoading, setAllLoading] = useState(false);
+  const [allError, setAllError] = useState<string | null>(null);
   // admin editace profilu člena (jméno, iniciály, barva)
   const [editId, setEditId] = useState<string | null>(null);
   const [eName, setEName] = useState("");
@@ -70,6 +80,19 @@ export default function MembersView({
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadAll = useCallback(async () => {
+    setAllLoading(true);
+    setAllError(null);
+    const result = await listAllUsers();
+    if (result.error) setAllError(result.error);
+    else setAllUsers(result.users ?? []);
+    setAllLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (tab === "all" && allUsers === null && !allLoading) loadAll();
+  }, [tab, allUsers, allLoading, loadAll]);
 
   function invite(e: React.FormEvent) {
     e.preventDefault();
@@ -233,6 +256,38 @@ export default function MembersView({
         {message && <p className="text-sm text-ink-soft">{message}</p>}
       </form>
 
+      {isSuperAdmin && (
+        <div className="inline-flex rounded-lg bg-black/5 p-0.5 text-sm">
+          {(
+            [
+              ["workspace", "Tato firma"],
+              ["all", "Všichni uživatelé"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              className={`rounded-md px-3 py-1 transition-colors ${
+                tab === key
+                  ? "bg-surface font-medium text-ink shadow-sm"
+                  : "text-ink-soft hover:text-ink"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === "all" && isSuperAdmin ? (
+        <AllUsersPanel
+          users={allUsers}
+          loading={allLoading}
+          error={allError}
+          currentUserId={currentUserId}
+        />
+      ) : (
       <div className="divide-y divide-line/70 panel">
         {members.map((member) => (
           <div key={member.user_id}>
@@ -396,6 +451,80 @@ export default function MembersView({
           </div>
         ))}
       </div>
+      )}
+    </div>
+  );
+}
+
+function AllUsersPanel({
+  users,
+  loading,
+  error,
+  currentUserId,
+}: {
+  users: AppUser[] | null;
+  loading: boolean;
+  error: string | null;
+  currentUserId: string;
+}) {
+  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (error) return <p className="p-4 text-sm text-danger">{error}</p>;
+  if (!users?.length)
+    return <p className="p-4 text-ink-soft/70">Žádní uživatelé.</p>;
+
+  return (
+    <div className="divide-y divide-line/70 panel">
+      {users.map((u) => (
+        <div key={u.id} className="flex items-center gap-3 px-3 py-2">
+          <Avatar profile={u} colorKey={u.id} size="md" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm">
+              {u.full_name || u.email}
+              {u.tag_name && (
+                <span className="ml-1.5 text-xs text-accent">@{u.tag_name}</span>
+              )}
+              {u.id === currentUserId && (
+                <span className="text-ink-soft/70"> (ty)</span>
+              )}
+              {u.is_super_admin && (
+                <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
+                  super-admin
+                </span>
+              )}
+              {u.status === "pending" && (
+                <span
+                  className="ml-1.5 rounded bg-black/5 px-1.5 py-0.5 text-xs text-ink-soft"
+                  title="Pozván, ale ještě si nenastavil heslo"
+                >
+                  čeká na aktivaci
+                </span>
+              )}
+            </p>
+            <p className="truncate text-xs text-ink-soft/70">{u.email}</p>
+            {u.memberships.length ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {u.memberships.map((m) => (
+                  <span
+                    key={m.workspaceId}
+                    className="inline-flex items-center gap-1 rounded bg-black/5 px-1.5 py-0.5 text-xs text-ink-soft"
+                  >
+                    {m.workspaceName}
+                    <span
+                      className={
+                        m.role === "admin" ? "text-amber-700" : "text-ink-soft/60"
+                      }
+                    >
+                      · {m.role}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-ink-soft/50">V žádné firmě</p>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

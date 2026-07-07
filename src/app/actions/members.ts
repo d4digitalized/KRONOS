@@ -54,6 +54,89 @@ export async function listAddablePortalUsers(wsId: string): Promise<{
   return { users };
 }
 
+export type AppUser = {
+  id: string;
+  email: string;
+  full_name: string;
+  avatar_initials: string | null;
+  avatar_color: string | null;
+  tag_name: string | null;
+  is_super_admin: boolean;
+  /** active = nastavené heslo/potvrzený účet; pending = pozván, ještě neaktivoval */
+  status: "active" | "pending";
+  memberships: { workspaceId: string; workspaceName: string; role: Role }[];
+};
+
+/** Všichni uživatelé aplikace napříč firmami — s firmami, rolemi a stavem účtu.
+    Citlivé (cross-tenant), proto jen pro super-admina. */
+export async function listAllUsers(): Promise<{
+  users?: AppUser[];
+  error?: string;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Nejsi přihlášený." };
+
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("is_super_admin")
+    .eq("id", user.id)
+    .single();
+  if (!me?.is_super_admin)
+    return { error: "Seznam všech uživatelů vidí jen super-admin." };
+
+  const admin = createAdminClient();
+  const [{ data: profiles }, { data: members }, { data: workspaces }, authList] =
+    await Promise.all([
+      admin
+        .from("profiles")
+        .select(
+          "id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name"
+        )
+        .order("full_name"),
+      admin.from("workspace_members").select("user_id, workspace_id, role"),
+      admin.from("workspaces").select("id, name"),
+      admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+    ]);
+
+  const wsName = new Map((workspaces ?? []).map((w) => [w.id, w.name as string]));
+  const byUser = new Map<string, AppUser["memberships"]>();
+  for (const m of members ?? []) {
+    const list = byUser.get(m.user_id) ?? [];
+    list.push({
+      workspaceId: m.workspace_id,
+      workspaceName: wsName.get(m.workspace_id) ?? "?",
+      role: m.role as Role,
+    });
+    byUser.set(m.user_id, list);
+  }
+
+  // potvrzený účet = přihlásil se nebo potvrdil e-mail; jinak jen pozvaný
+  const confirmed = new Set(
+    (authList.data?.users ?? [])
+      .filter((u) => u.email_confirmed_at || u.last_sign_in_at)
+      .map((u) => u.id)
+  );
+
+  const users: AppUser[] = (profiles ?? []).map((p) => ({
+    id: p.id,
+    email: p.email,
+    full_name: p.full_name,
+    avatar_initials: p.avatar_initials ?? null,
+    avatar_color: p.avatar_color ?? null,
+    tag_name: p.tag_name ?? null,
+    is_super_admin: p.is_super_admin,
+    status: confirmed.has(p.id) ? "active" : "pending",
+    memberships: (byUser.get(p.id) ?? []).sort((a, b) =>
+      a.workspaceName.localeCompare(b.workspaceName)
+    ),
+  }));
+
+  return { users };
+}
+
 export async function inviteMember(
   wsId: string,
   email: string,
