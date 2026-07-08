@@ -406,7 +406,8 @@ export default function ReportsView({
           {detailEntries.length === 0 ? (
             <p className="p-3 text-sm text-ink-soft/70">Žádné záznamy za období.</p>
           ) : (
-            <table className="w-full text-sm">
+            <div className="-mx-px overflow-x-auto scroll-touch">
+            <table className="w-full min-w-[32rem] text-sm">
               <thead>
                 <tr className="border-b border-line/70 text-left text-xs text-ink-soft">
                   <th className="px-3 py-2 font-medium">Datum</th>
@@ -415,7 +416,7 @@ export default function ReportsView({
                     <th className="px-3 py-2 font-medium">Osoba</th>
                   )}
                   <th className="px-1 py-2 font-medium">Projekt</th>
-                  <th className="px-3 py-2 font-medium">Čas</th>
+                  <th className="hidden px-3 py-2 font-medium sm:table-cell">Čas</th>
                   <th className="px-3 py-2 text-right font-medium">Hodiny</th>
                 </tr>
               </thead>
@@ -441,7 +442,7 @@ export default function ReportsView({
                         align="left"
                       />
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-ink-soft">
+                    <td className="hidden whitespace-nowrap px-3 py-2 text-ink-soft sm:table-cell">
                       {fmtTime(entry.started_at)} – {entry.stopped_at ? fmtTime(entry.stopped_at) : ""}
                     </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums">
@@ -451,6 +452,7 @@ export default function ReportsView({
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}

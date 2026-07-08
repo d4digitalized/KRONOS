@@ -317,9 +317,9 @@ export default function TasksView({
               <tr className="border-b border-line/70 text-left text-xs text-ink-soft">
                 <th className="w-8 px-3 py-2" aria-label="Hotovo" />
                 <th className="px-2 py-2 font-medium">Úkol</th>
-                <th className="px-2 py-2 font-medium">Projekt</th>
-                <th className="px-2 py-2 font-medium">Sloupec</th>
-                <th className="px-2 py-2 font-medium">Řešitelé</th>
+                <th className="hidden px-2 py-2 font-medium md:table-cell">Projekt</th>
+                <th className="hidden px-2 py-2 font-medium lg:table-cell">Sloupec</th>
+                <th className="hidden px-2 py-2 font-medium sm:table-cell">Řešitelé</th>
                 <th className="px-2 py-2 font-medium">Termín</th>
               </tr>
             </thead>
@@ -360,17 +360,22 @@ export default function TasksView({
                           </span>
                         )}
                       </span>
+                      {/* na mobilu projekt jako podřádek (sloupec Projekt je skrytý) */}
+                      <span className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-ink-soft md:hidden">
+                        <ProjectDot id={task.project_id} className="h-2 w-2" />
+                        {task.projects?.name ?? "—"}
+                      </span>
                     </td>
-                    <td className="whitespace-nowrap px-2 py-2 text-ink-soft">
+                    <td className="hidden whitespace-nowrap px-2 py-2 text-ink-soft md:table-cell">
                       <span className="inline-flex items-center gap-1.5">
                         <ProjectDot id={task.project_id} className="h-2 w-2" />
                         {task.projects?.name ?? "—"}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-2 py-2 text-ink-soft">
+                    <td className="hidden whitespace-nowrap px-2 py-2 text-ink-soft lg:table-cell">
                       {task.board_columns?.name ?? "—"}
                     </td>
-                    <td className="px-2 py-2">
+                    <td className="hidden px-2 py-2 sm:table-cell">
                       {taskAssignees.length === 0 ? (
                         <span className="text-ink-soft/50">—</span>
                       ) : (

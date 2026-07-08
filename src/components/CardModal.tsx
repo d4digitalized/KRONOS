@@ -366,7 +366,7 @@ export default function CardModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-10"
+      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-y-auto bg-black/40 sm:items-start sm:p-10"
       onClick={onClose}
     >
       <div
@@ -375,7 +375,7 @@ export default function CardModal({
         aria-modal="true"
         aria-label={`Karta: ${task.title}`}
         tabIndex={-1}
-        className="w-full max-w-lg space-y-4 rounded-xl bg-surface p-5 shadow-xl outline-none"
+        className="pb-safe w-full space-y-4 bg-surface p-4 shadow-xl outline-none sm:max-w-lg sm:rounded-xl sm:p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3">

@@ -463,7 +463,7 @@ export default function BoardView({
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="flex items-start gap-3 overflow-x-auto pb-4">
+        <div className="flex items-start gap-3 overflow-x-auto scroll-touch snap-x snap-proximity pb-4">
           <SortableContext
             items={columns.map((c) => colDndId(c.id))}
             strategy={horizontalListSortingStrategy}
@@ -605,7 +605,7 @@ function SortableColumn({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`w-64 shrink-0 rounded-xl bg-black/5 p-2 ${isDragging ? "opacity-50" : ""}`}
+      className={`w-64 shrink-0 snap-start rounded-xl bg-black/5 p-2 ${isDragging ? "opacity-50" : ""}`}
     >
       <div className="mb-2 flex items-center gap-1">
         <button

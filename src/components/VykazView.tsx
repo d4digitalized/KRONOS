@@ -121,16 +121,16 @@ export default function VykazView({ wsId, userId, from, to, rate, unit }: Props)
 
   return (
     <div className="min-h-screen bg-paper print:bg-white">
-      <div className="mx-auto flex max-w-[210mm] items-center justify-between px-8 pt-6 print:hidden">
+      <div className="mx-auto flex max-w-[210mm] flex-col gap-2 px-4 pt-6 sm:flex-row sm:items-center sm:justify-between sm:px-8 print:hidden">
         <p className="text-sm text-ink-soft">
           Náhled výkazu — PDF uložíš tlačítkem vpravo (cíl „Uložit jako PDF“).
         </p>
-        <button onClick={() => window.print()} className="btn-primary">
+        <button onClick={() => window.print()} className="btn-primary shrink-0">
           Uložit jako PDF
         </button>
       </div>
 
-      <div className="mx-auto my-6 max-w-[210mm] bg-white p-10 shadow-sm print:my-0 print:max-w-none print:p-0 print:shadow-none">
+      <div className="mx-auto my-6 max-w-[210mm] bg-white p-5 shadow-sm sm:p-10 print:my-0 print:max-w-none print:p-0 print:shadow-none">
         <header className="flex items-baseline justify-between border-b-2 border-ink pb-3">
           <h1 className="font-display text-2xl font-semibold">Pracovní výkaz</h1>
           <span className="text-lg">{periodLabel(from, to)}</span>
@@ -160,7 +160,8 @@ export default function VykazView({ wsId, userId, from, to, rate, unit }: Props)
             Za zvolené období nejsou žádné dokončené záznamy času.
           </p>
         ) : (
-          <table className="mt-6 w-full border-collapse text-sm">
+          <div className="overflow-x-auto scroll-touch print:overflow-visible">
+          <table className="mt-6 w-full min-w-[34rem] border-collapse text-sm print:min-w-0">
             <thead>
               <tr className="border-b border-ink text-left text-xs uppercase tracking-wide text-ink-soft">
                 <th className="py-1.5 pr-3 font-medium">Datum</th>
@@ -205,6 +206,7 @@ export default function VykazView({ wsId, userId, from, to, rate, unit }: Props)
               </tr>
             </tfoot>
           </table>
+          </div>
         )}
 
         {byProject.size > 1 && (
