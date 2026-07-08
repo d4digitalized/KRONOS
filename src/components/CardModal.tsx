@@ -9,7 +9,14 @@ import { pingNotifyEmails } from "@/lib/notify";
 import { PRIORITIES, RECURRENCE_OPTIONS, priorityColor } from "@/lib/priority";
 import { projectColor } from "@/components/ProjectPicker";
 import Avatar from "@/components/Avatar";
-import type { Label, Membership, Recurrence, Task, TaskComment } from "@/lib/types";
+import type {
+  Label,
+  Membership,
+  Project,
+  Recurrence,
+  Task,
+  TaskComment,
+} from "@/lib/types";
 
 /** @tagy v textu komentáře zvýrazní barvou akcentu. */
 function CommentBody({ body }: { body: string }) {
@@ -45,6 +52,8 @@ export default function CardModal({
   const supabase = createClient();
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
+  const [projectId, setProjectId] = useState(task.project_id);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [assignees, setAssignees] = useState<Set<string>>(new Set());
   const [projectMembers, setProjectMembers] = useState<Set<string>>(new Set());
   const [grants, setGrants] = useState<Set<string>>(new Set());
@@ -107,6 +116,17 @@ export default function CardModal({
     setSubtasks((data as Task[]) ?? []);
   }, [supabase, task.id]);
 
+  const loadProjects = useCallback(async () => {
+    const { data } = await supabase
+      .from("projects")
+      .select("id, name")
+      .eq("workspace_id", task.workspace_id)
+      .eq("archived", false)
+      .order("position")
+      .order("name");
+    setProjects((data as Project[]) ?? []);
+  }, [supabase, task.workspace_id]);
+
   const loadAssignees = useCallback(async () => {
     const [mineRes, pmRes, grantRes] = await Promise.all([
       supabase.from("task_assignees").select("user_id").eq("task_id", task.id),
@@ -130,7 +150,8 @@ export default function CardModal({
     loadLabels();
     loadSubtasks();
     loadAssignees();
-  }, [loadComments, loadLabels, loadSubtasks, loadAssignees]);
+    loadProjects();
+  }, [loadComments, loadLabels, loadSubtasks, loadAssignees, loadProjects]);
 
   // přiřadit lze jen členy projektu (admini vidí všechny projekty)
   const assignable = members.filter(
@@ -168,22 +189,36 @@ export default function CardModal({
   }
 
   async function save() {
+    const projectChanged = projectId !== task.project_id;
+    const patch: Record<string, unknown> = {
+      title: title.trim() || task.title,
+      description,
+      due_date: dueDate || null,
+      priority,
+      recurrence: (recurrence || null) as Recurrence | null,
+      completed_at: done
+        ? (task.completed_at ?? new Date().toISOString())
+        : null,
+      project_id: projectId,
+    };
+    // cílový projekt má vlastní sloupce → kartu vyřadíme ze sloupce, board ji
+    // při načtení zařadí do prvního sloupce nového projektu
+    if (projectChanged) patch.column_id = null;
+
     const { error } = await supabase
       .from("tasks")
-      .update({
-        title: title.trim() || task.title,
-        description,
-        due_date: dueDate || null,
-        priority,
-        recurrence: (recurrence || null) as Recurrence | null,
-        completed_at: done
-          ? (task.completed_at ?? new Date().toISOString())
-          : null,
-      })
+      .update(patch)
       .eq("id", task.id);
     if (error) {
       setError("Uložení se nezdařilo.");
       return;
+    }
+    // podúkoly patří k rodiči — přesuň je do stejného projektu
+    if (projectChanged) {
+      await supabase
+        .from("tasks")
+        .update({ project_id: projectId })
+        .eq("parent_id", task.id);
     }
     pingNotifyEmails(); // dokončení opakované karty přiřazuje další výskyt
     onChanged();
@@ -375,23 +410,31 @@ export default function CardModal({
         aria-modal="true"
         aria-label={`Karta: ${task.title}`}
         tabIndex={-1}
-        className="pb-safe w-full space-y-4 bg-surface p-4 shadow-xl outline-none sm:max-w-lg sm:rounded-xl sm:p-5"
+        className="pb-safe flex w-full flex-col bg-surface shadow-xl outline-none sm:h-[86vh] sm:max-w-4xl sm:rounded-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start gap-3">
-          <input
-            type="checkbox"
-            checked={done}
-            onChange={(e) => setDone(e.target.checked)}
-            className="mt-1.5 h-4 w-4"
-            title="Hotovo"
-          />
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="flex-1 rounded-md border border-transparent px-2 py-1 text-lg font-semibold hover:border-line focus:border-line"
-          />
+        {/* horní lišta: projekt (přesun karty mezi projekty) + zavřít */}
+        <div className="flex items-center gap-2 border-b border-line px-3 py-2.5 sm:px-4">
+          {isAdmin && projects.length > 0 ? (
+            <select
+              value={projectId ?? ""}
+              onChange={(e) => setProjectId(e.target.value)}
+              aria-label="Projekt karty"
+              title="Přesunout kartu do jiného projektu"
+              className="input max-w-[65%] px-2 py-1 text-sm font-medium"
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="chip max-w-[65%] truncate px-2 py-1 text-sm">
+              {projects.find((p) => p.id === projectId)?.name ?? "Projekt"}
+            </span>
+          )}
+          <span className="flex-1" />
           <button
             onClick={onClose}
             aria-label="Zavřít kartu"
@@ -400,6 +443,25 @@ export default function CardModal({
             ✕
           </button>
         </div>
+
+        {/* tělo: obsah vlevo, komentáře/aktivita vpravo (na mobilu pod sebou) */}
+        <div className="flex min-h-0 flex-1 flex-col sm:flex-row sm:overflow-hidden">
+          <div className="min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={done}
+                onChange={(e) => setDone(e.target.checked)}
+                className="mt-1.5 h-4 w-4"
+                title="Hotovo"
+              />
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="flex-1 rounded-md border border-transparent px-2 py-1 text-lg font-semibold hover:border-line focus:border-line"
+              />
+            </div>
 
         <textarea
           value={description}
@@ -590,11 +652,18 @@ export default function CardModal({
           </form>
         </div>
 
-        <div className="space-y-2 border-t border-line/70 pt-3">
-          <h3 className="text-sm font-semibold">Komentáře</h3>
-          {comments.length === 0 && (
-            <p className="text-xs text-ink-soft/70">Zatím žádné komentáře.</p>
-          )}
+            {error && <p className="text-sm text-red-600">{error}</p>}
+          </div>
+
+          {/* pravý panel: komentáře a aktivita */}
+          <div className="flex w-full shrink-0 flex-col border-t border-line bg-paper/40 sm:w-80 sm:overflow-hidden sm:border-l sm:border-t-0 lg:w-96">
+            <h3 className="border-b border-line px-4 py-2.5 text-sm font-semibold">
+              Komentáře a aktivita
+            </h3>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+              {comments.length === 0 && (
+                <p className="text-xs text-ink-soft/70">Zatím žádné komentáře.</p>
+              )}
           {comments.map((comment) => (
             <div key={comment.id} className="rounded-lg bg-paper p-2">
               <div className="flex items-baseline gap-2">
@@ -621,7 +690,8 @@ export default function CardModal({
               <CommentBody body={comment.body} />
             </div>
           ))}
-          <form onSubmit={addComment} className="flex gap-2">
+            </div>
+            <form onSubmit={addComment} className="flex gap-2 border-t border-line p-3">
             <div className="relative flex-1">
               {mentionQuery !== null && mentionSuggestions.length > 0 && (
                 <ul
@@ -675,22 +745,19 @@ export default function CardModal({
             >
               Odeslat
             </button>
-          </form>
+            </form>
+          </div>
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        <div className="flex items-center justify-between border-t border-line/70 pt-3">
+        {/* patička přes celou šířku */}
+        <div className="flex items-center justify-between border-t border-line px-3 py-2.5 sm:px-4">
           <button
             onClick={remove}
             className="rounded-md px-2 py-1 text-sm text-danger hover:bg-danger/10"
           >
             Smazat kartu
           </button>
-          <button
-            onClick={save}
-            className="btn-primary"
-          >
+          <button onClick={save} className="btn-primary">
             Uložit
           </button>
         </div>
