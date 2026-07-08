@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { cacheClear } from "@/lib/viewCache";
 import Avatar from "@/components/Avatar";
 import {
   ICONS,
@@ -75,6 +76,7 @@ export default function MobileNav({
   async function logout() {
     const supabase = createClient();
     await supabase.auth.signOut();
+    cacheClear(); // ať se data neukážou dalšímu přihlášenému v téže záložce
     router.push("/login");
     router.refresh();
   }

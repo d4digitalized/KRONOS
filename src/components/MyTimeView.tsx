@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { cacheGet, cacheSet } from "@/lib/viewCache";
 import { dayKey, entrySeconds, fmtDuration, fmtTime } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { confirmDialog } from "@/lib/confirm";
@@ -25,10 +26,12 @@ export default function MyTimeView({
   userId: string;
 }) {
   const supabase = createClient();
-  const [entries, setEntries] = useState<TimeEntry[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const cacheKey = `mytime:${wsId}:${userId}`;
+  const cached = cacheGet<{ entries: TimeEntry[]; projects: Project[] }>(cacheKey);
+  const [entries, setEntries] = useState<TimeEntry[]>(cached?.entries ?? []);
+  const [projects, setProjects] = useState<Project[]>(cached?.projects ?? []);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editStart, setEditStart] = useState("");
   const [editStop, setEditStop] = useState("");
@@ -61,10 +64,13 @@ export default function MyTimeView({
         .order("position")
         .order("name"),
     ]);
-    setEntries((entriesRes.data as TimeEntry[]) ?? []);
-    setProjects((projectsRes.data as Project[]) ?? []);
+    const nextEntries = (entriesRes.data as TimeEntry[]) ?? [];
+    const nextProjects = (projectsRes.data as Project[]) ?? [];
+    setEntries(nextEntries);
+    setProjects(nextProjects);
+    cacheSet(cacheKey, { entries: nextEntries, projects: nextProjects });
     setLoading(false);
-  }, [supabase, wsId, userId]);
+  }, [supabase, wsId, userId, cacheKey]);
 
   useEffect(() => {
     load();

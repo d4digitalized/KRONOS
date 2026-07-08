@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { priorityColor } from "@/lib/priority";
@@ -7,7 +8,7 @@ import { projectColor } from "@/components/ProjectPicker";
 import Avatar from "@/components/Avatar";
 import type { Label, Membership, Task } from "@/lib/types";
 
-export default function BoardCard({
+function BoardCard({
   task,
   members,
   labels = [],
@@ -21,8 +22,8 @@ export default function BoardCard({
   labels?: Label[];
   assigneeIds?: string[];
   subtaskCount?: { done: number; total: number };
-  onOpen: () => void;
-  onStart: () => void;
+  onOpen: (task: Task) => void;
+  onStart: (task: Task) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: task.id, data: { type: "card" } });
@@ -45,7 +46,7 @@ export default function BoardCard({
       }}
       {...attributes}
       {...listeners}
-      onClick={onOpen}
+      onClick={() => onOpen(task)}
       className={`cursor-grab rounded-lg border border-line bg-surface p-2 shadow-sm hover:border-accent/50 ${
         isDragging ? "opacity-40" : ""
       }`}
@@ -119,7 +120,7 @@ export default function BoardCard({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onStart();
+                onStart(task);
               }}
               aria-label={`Spustit timer na kartě ${task.title}`}
               title="Spustit timer"
@@ -133,3 +134,7 @@ export default function BoardCard({
     </div>
   );
 }
+
+// memo: karta se překreslí jen při změně vlastních props (ne při psaní do
+// filtru nebo tiknutí timeru jinde). Callbacky drží BoardView přes useCallback.
+export default memo(BoardCard);

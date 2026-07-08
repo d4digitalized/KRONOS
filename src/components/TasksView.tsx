@@ -1,17 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { createClient } from "@/lib/supabase/client";
 import { posBetween } from "@/lib/position";
 import { toast } from "@/lib/toast";
 import { pingNotifyEmails } from "@/lib/notify";
 import { PRIORITIES, priorityColor } from "@/lib/priority";
 import { fmtDate } from "@/lib/format";
+import { cacheGet, cacheSet } from "@/lib/viewCache";
 import ProjectPicker, { ProjectDot } from "@/components/ProjectPicker";
 import Picker from "@/components/Picker";
 import Avatar from "@/components/Avatar";
-import CardModal from "@/components/CardModal";
 import type { Membership, Project, Task } from "@/lib/types";
+
+// Modal karty se dogeneruje až při otevření (mimo základní bundle routy).
+const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
 
 const USER_ICON =
   "M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
@@ -28,11 +32,20 @@ export default function TasksView({
   isAdmin: boolean;
 }) {
   const supabase = createClient();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [members, setMembers] = useState<Membership[]>([]);
-  const [assignees, setAssignees] = useState<Record<string, string[]>>({});
-  const [loading, setLoading] = useState(true);
+  const cacheKey = `tasks:${wsId}`;
+  const cached = cacheGet<{
+    tasks: Task[];
+    projects: Project[];
+    members: Membership[];
+    assignees: Record<string, string[]>;
+  }>(cacheKey);
+  const [tasks, setTasks] = useState<Task[]>(cached?.tasks ?? []);
+  const [projects, setProjects] = useState<Project[]>(cached?.projects ?? []);
+  const [members, setMembers] = useState<Membership[]>(cached?.members ?? []);
+  const [assignees, setAssignees] = useState<Record<string, string[]>>(
+    cached?.assignees ?? {}
+  );
+  const [loading, setLoading] = useState(!cached);
   const [openTask, setOpenTask] = useState<Task | null>(null);
   // zadání nového úkolu (admin)
   const [addTitle, setAddTitle] = useState("");
@@ -71,16 +84,25 @@ export default function TasksView({
         .select("task_id, user_id, tasks!inner(workspace_id)")
         .eq("tasks.workspace_id", wsId),
     ]);
-    setTasks((taskRes.data as Task[]) ?? []);
-    setProjects((projRes.data as Project[]) ?? []);
-    setMembers((memRes.data as unknown as Membership[]) ?? []);
+    const nextTasks = (taskRes.data as Task[]) ?? [];
+    const nextProjects = (projRes.data as Project[]) ?? [];
+    const nextMembers = (memRes.data as unknown as Membership[]) ?? [];
     const byTask: Record<string, string[]> = {};
     for (const row of taRes.data ?? []) {
       byTask[row.task_id] = [...(byTask[row.task_id] ?? []), row.user_id as string];
     }
+    setTasks(nextTasks);
+    setProjects(nextProjects);
+    setMembers(nextMembers);
     setAssignees(byTask);
+    cacheSet(cacheKey, {
+      tasks: nextTasks,
+      projects: nextProjects,
+      members: nextMembers,
+      assignees: byTask,
+    });
     setLoading(false);
-  }, [supabase, wsId]);
+  }, [supabase, wsId, cacheKey]);
 
   useEffect(() => {
     load();

@@ -1,15 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import { pingNotifyEmails } from "@/lib/notify";
 import { priorityColor } from "@/lib/priority";
 import { fmtDate } from "@/lib/format";
+import { cacheGet, cacheSet } from "@/lib/viewCache";
 import { ProjectDot } from "@/components/ProjectPicker";
 import Avatar, { type AvatarLike } from "@/components/Avatar";
-import CardModal from "@/components/CardModal";
 import type { Membership, Task } from "@/lib/types";
+
+// Modal se načte až při otevření karty — nezatěžuje základní bundle routy.
+const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
 
 type Bucket = { key: string; label: string; tasks: Task[]; accent?: boolean };
 
@@ -54,9 +58,11 @@ export default function MyTasksView({
   profile: AvatarLike | null;
 }) {
   const supabase = createClient();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [members, setMembers] = useState<Membership[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = `mytasks:${wsId}:${userId}`;
+  const cached = cacheGet<{ tasks: Task[]; members: Membership[] }>(cacheKey);
+  const [tasks, setTasks] = useState<Task[]>(cached?.tasks ?? []);
+  const [members, setMembers] = useState<Membership[]>(cached?.members ?? []);
+  const [loading, setLoading] = useState(!cached);
   const [openTask, setOpenTask] = useState<Task | null>(null);
 
   const load = useCallback(async () => {
@@ -85,10 +91,12 @@ export default function MyTasksView({
           (a.priority ?? 4) - (b.priority ?? 4) ||
           a.title.localeCompare(b.title, "cs")
       );
+    const mem = (memRes.data as unknown as Membership[]) ?? [];
     setTasks(mine);
-    setMembers((memRes.data as unknown as Membership[]) ?? []);
+    setMembers(mem);
+    cacheSet(cacheKey, { tasks: mine, members: mem });
     setLoading(false);
-  }, [supabase, wsId, userId]);
+  }, [supabase, wsId, userId, cacheKey]);
 
   useEffect(() => {
     load();

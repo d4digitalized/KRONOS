@@ -23,6 +23,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import dynamic from "next/dynamic";
 import { createClient } from "@/lib/supabase/client";
 import { posBetween } from "@/lib/position";
 import { startTimer } from "@/lib/timer";
@@ -31,8 +32,10 @@ import { confirmDialog } from "@/lib/confirm";
 import { PRIORITIES } from "@/lib/priority";
 import type { BoardColumn, Label, Membership, Task } from "@/lib/types";
 import BoardCard from "@/components/BoardCard";
-import CardModal from "@/components/CardModal";
 import { ProjectDot } from "@/components/ProjectPicker";
+
+// Modal karty mimo základní bundle nástěnky — načte se až při otevření.
+const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
 
 type CardsByCol = Record<string, Task[]>;
 
@@ -172,6 +175,19 @@ export default function BoardView({
   useEffect(() => {
     load();
   }, [load]);
+
+  // stabilní handlery pro karty — bez nich by memo(BoardCard) nefungovalo
+  const openCard = useCallback((task: Task) => setOpenTask(task), []);
+  const startCard = useCallback(
+    (task: Task) =>
+      startTimer(supabase, userId, {
+        workspace_id: wsId,
+        project_id: projectId,
+        task_id: task.id,
+        task_title: task.title,
+      }),
+    [supabase, userId, wsId, projectId]
+  );
 
   // ---------------------------------------------------------------- sloupce
 
@@ -493,15 +509,8 @@ export default function BoardView({
                         labels={cardLabels[task.id]}
                         assigneeIds={cardAssignees[task.id]}
                         subtaskCount={subCounts[task.id]}
-                        onOpen={() => setOpenTask(task)}
-                        onStart={() =>
-                          startTimer(supabase, userId, {
-                            workspace_id: wsId,
-                            project_id: projectId,
-                            task_id: task.id,
-                            task_title: task.title,
-                          })
-                        }
+                        onOpen={openCard}
+                        onStart={startCard}
                       />
                     ))}
                   </div>
