@@ -122,7 +122,7 @@ export default function MyTasksView({
   const today = isoDay(new Date());
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4">
+    <div className="w-full space-y-4">
       <div className="flex items-center gap-3">
         <Avatar profile={profile} colorKey={userId} size="lg" />
         <div>
