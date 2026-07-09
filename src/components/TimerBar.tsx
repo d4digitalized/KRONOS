@@ -9,9 +9,17 @@ import {
   updateRunningEntry,
   TIMER_CHANGED_EVENT,
 } from "@/lib/timer";
-import ProjectPicker from "@/components/ProjectPicker";
+import ProjectPicker, { ProjectDot } from "@/components/ProjectPicker";
 import NotificationsBell from "@/components/NotificationsBell";
 import type { Project, TimeEntry } from "@/lib/types";
+
+/** Odlehčený úkol pro našeptávač v liště. */
+type TaskLite = {
+  id: string;
+  title: string;
+  project_id: string | null;
+  projects: { name: string } | null;
+};
 
 export default function TimerBar({
   wsId,
@@ -27,6 +35,11 @@ export default function TimerBar({
   const [idleProject, setIdleProject] = useState("");
   const [busy, setBusy] = useState(false);
   const [, setTick] = useState(0);
+  // našeptávač přiřazených úkolů
+  const [myTasks, setMyTasks] = useState<TaskLite[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [highlight, setHighlight] = useState(-1);
+  const suggestRef = useRef<HTMLDivElement>(null);
   // start/stop probíhá — blokuje dvojklik i externí reload, aby optimistický
   // stav nepřeblikával. Ref (ne state), ať ho vidí i listenery bez re-subscribe.
   const busyRef = useRef(false);
@@ -78,6 +91,38 @@ export default function TimerBar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsId]);
 
+  // úkoly přiřazené přihlášenému uživateli — zdroj pro našeptávač
+  const loadMyTasks = useCallback(async () => {
+    const { data } = await supabase
+      .from("task_assignees")
+      .select("tasks!inner(id, title, project_id, projects(name))")
+      .eq("user_id", userId)
+      .eq("tasks.workspace_id", wsId)
+      .is("tasks.completed_at", null)
+      .is("tasks.parent_id", null);
+    const tasks = ((data ?? []) as unknown as { tasks: TaskLite }[])
+      .map((r) => r.tasks)
+      .sort((a, b) => a.title.localeCompare(b.title, "cs"));
+    setMyTasks(tasks);
+  }, [supabase, wsId, userId]);
+
+  useEffect(() => {
+    loadMyTasks();
+    const onChange = () => loadMyTasks();
+    window.addEventListener(TIMER_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(TIMER_CHANGED_EVENT, onChange);
+  }, [loadMyTasks]);
+
+  // zavření našeptávače kliknutím mimo
+  useEffect(() => {
+    if (!suggestOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!suggestRef.current?.contains(e.target as Node)) setSuggestOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [suggestOpen]);
+
   useEffect(() => {
     if (!running) return;
     const id = setInterval(() => setTick((t) => t + 1), 1000);
@@ -120,6 +165,38 @@ export default function TimerBar({
     setBusy(false);
   }
 
+  // spustí timer rovnou na vybraném přiřazeném úkolu
+  async function pickTask(task: TaskLite) {
+    setSuggestOpen(false);
+    setHighlight(-1);
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setDescription("");
+    setRunning({
+      id: "optimistic",
+      workspace_id: wsId,
+      user_id: userId,
+      project_id: task.project_id,
+      task_id: task.id,
+      description: "",
+      started_at: new Date().toISOString(),
+      stopped_at: null,
+      tasks: { title: task.title },
+      projects: task.projects,
+    } as unknown as TimeEntry);
+    await startTimer(supabase, userId, {
+      workspace_id: wsId,
+      project_id: task.project_id,
+      task_id: task.id,
+      task_title: task.title,
+    });
+    setIdleProject("");
+    await load();
+    busyRef.current = false;
+    setBusy(false);
+  }
+
   async function stop() {
     if (busyRef.current || !running) return;
     busyRef.current = true;
@@ -138,6 +215,12 @@ export default function TimerBar({
     });
   }
 
+  const q = description.trim().toLowerCase();
+  const suggestions = (
+    q ? myTasks.filter((t) => t.title.toLowerCase().includes(q)) : myTasks
+  ).slice(0, 8);
+  const showSuggest = suggestOpen && suggestions.length > 0;
+
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-surface/90 backdrop-blur">
       <div className="flex flex-wrap items-center gap-3 px-4 py-2.5">
@@ -152,19 +235,70 @@ export default function TimerBar({
           </div>
         ) : (
           <>
-            <input
-              type="text"
-              placeholder="Na čem děláš?"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              onBlur={running ? saveDescription : undefined}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter") return;
-                if (running) e.currentTarget.blur();
-                else start();
-              }}
-              className="input-quiet -ml-2 min-w-40 flex-1 px-2 py-1.5 text-base"
-            />
+            <div ref={suggestRef} className="relative -ml-2 min-w-40 flex-1">
+              <input
+                type="text"
+                placeholder="Na čem děláš?"
+                value={description}
+                onChange={(e) => {
+                  setDescription(e.target.value);
+                  setSuggestOpen(true);
+                  setHighlight(-1);
+                }}
+                onFocus={() => setSuggestOpen(true)}
+                onBlur={running ? saveDescription : undefined}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown" && suggestions.length) {
+                    e.preventDefault();
+                    setSuggestOpen(true);
+                    setHighlight((h) => Math.min(h + 1, suggestions.length - 1));
+                    return;
+                  }
+                  if (e.key === "ArrowUp" && showSuggest) {
+                    e.preventDefault();
+                    setHighlight((h) => Math.max(h - 1, 0));
+                    return;
+                  }
+                  if (e.key === "Escape" && showSuggest) {
+                    setSuggestOpen(false);
+                    setHighlight(-1);
+                    return;
+                  }
+                  if (e.key !== "Enter") return;
+                  if (showSuggest && highlight >= 0) {
+                    e.preventDefault();
+                    pickTask(suggestions[highlight]);
+                    return;
+                  }
+                  if (running) e.currentTarget.blur();
+                  else start();
+                }}
+                className="input-quiet w-full px-2 py-1.5 text-base"
+              />
+              {showSuggest && (
+                <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-xl">
+                  {suggestions.map((t, i) => (
+                    <li key={t.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => pickTask(t)}
+                        onMouseEnter={() => setHighlight(i)}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${
+                          i === highlight ? "bg-accent-soft/60" : "hover:bg-black/[.03]"
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{t.title}</span>
+                        <span className="flex shrink-0 items-center gap-1 text-xs text-ink-soft/70">
+                          <ProjectDot id={t.project_id} className="h-2 w-2" />
+                          {t.projects?.name ?? "—"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <ProjectPicker
               projects={projects}
               value={running ? running.project_id : idleProject || null}
