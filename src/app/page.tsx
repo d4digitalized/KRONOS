@@ -16,7 +16,7 @@ export default async function Home() {
     .limit(1);
 
   if (memberships && memberships.length > 0) {
-    redirect(`/w/${memberships[0].workspace_id}`);
+    redirect(`/w/${memberships[0].workspace_id}/my`);
   }
 
   const { data: profile } = await supabase

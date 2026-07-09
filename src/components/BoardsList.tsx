@@ -51,21 +51,15 @@ export default function BoardsList({
   return (
     <div className="space-y-4">
       {isAdmin && (
-        <form
-          onSubmit={add}
-          className="flex gap-2 panel p-3"
-        >
+        <form onSubmit={add} className="flex gap-2 panel p-3">
           <input
             type="text"
             placeholder="Nová nástěnka (projekt)…"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            className="flex-1 input"
+            className="min-w-0 flex-1 input"
           />
-          <button
-            type="submit"
-            className="btn-primary"
-          >
+          <button type="submit" className="btn-primary shrink-0">
             Založit
           </button>
         </form>
@@ -83,10 +77,11 @@ export default function BoardsList({
             <Link
               key={project.id}
               href={`/w/${wsId}/b/${project.id}`}
-              className="flex items-center gap-2.5 panel p-4 font-medium shadow-sm hover:border-accent/50"
+              title={project.name}
+              className="flex min-w-0 items-center gap-2.5 panel p-4 font-medium shadow-sm hover:border-accent/50"
             >
               <ProjectDot id={project.id} />
-              <span className="truncate">{project.name}</span>
+              <span className="min-w-0 truncate">{project.name}</span>
             </Link>
           ))}
         </div>

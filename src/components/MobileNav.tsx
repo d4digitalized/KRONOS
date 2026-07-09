@@ -151,7 +151,7 @@ export default function MobileNav({
             {workspaces.length > 1 ? (
               <select
                 value={wsId}
-                onChange={(e) => router.push(`/w/${e.target.value}`)}
+                onChange={(e) => router.push(`/w/${e.target.value}/my`)}
                 aria-label="Přepnout workspace"
                 className="input mx-3 mb-2 px-2 py-1"
               >
