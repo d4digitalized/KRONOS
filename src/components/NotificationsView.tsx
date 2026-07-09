@@ -87,7 +87,7 @@ export default function NotificationsView({ userId }: { userId: string }) {
   const unread = items.filter((i) => !i.read_at).length;
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-4">
+    <div className="w-full space-y-4">
       <div className="flex items-center gap-3">
         <h1 className="font-display text-lg font-semibold">Notifikace</h1>
         {unread > 0 && (
