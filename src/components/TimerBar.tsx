@@ -223,7 +223,8 @@ export default function TimerBar({
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-surface/90 backdrop-blur">
-      <div className="flex flex-wrap items-center gap-3 px-4 py-2.5">
+      {/* jeden řádek i na mobilu — zalomení řešíme zmenšením popisu, ne wrapem */}
+      <div className="flex items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-4">
         {isTaskEntry && running ? (
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">
@@ -235,7 +236,7 @@ export default function TimerBar({
           </div>
         ) : (
           <>
-            <div ref={suggestRef} className="relative -ml-2 min-w-40 flex-1">
+            <div ref={suggestRef} className="relative -ml-2 min-w-0 flex-1 sm:min-w-40">
               <input
                 type="text"
                 placeholder="Na čem děláš?"
@@ -299,22 +300,25 @@ export default function TimerBar({
                 </ul>
               )}
             </div>
-            <ProjectPicker
-              projects={projects}
-              value={running ? running.project_id : idleProject || null}
-              onChange={(projectId) =>
-                running
-                  ? updateRunningEntry(supabase, running.id, {
-                      project_id: projectId,
-                    })
-                  : setIdleProject(projectId ?? "")
-              }
-            />
+            <div className="shrink-0">
+              <ProjectPicker
+                projects={projects}
+                value={running ? running.project_id : idleProject || null}
+                onChange={(projectId) =>
+                  running
+                    ? updateRunningEntry(supabase, running.id, {
+                        project_id: projectId,
+                      })
+                    : setIdleProject(projectId ?? "")
+                }
+                hideLabelOnMobile
+              />
+            </div>
           </>
         )}
 
         <span
-          className={`font-mono text-lg font-semibold tabular-nums ${
+          className={`shrink-0 font-mono text-base font-semibold tabular-nums sm:text-lg ${
             running ? "text-brass" : "text-ink-soft/50"
           }`}
         >
@@ -326,7 +330,7 @@ export default function TimerBar({
             onClick={stop}
             disabled={busy}
             aria-label="Zastavit timer a uložit záznam"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-500 disabled:opacity-60"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-500 disabled:opacity-60"
           >
             <span className="block h-3.5 w-3.5 rounded-[2px] bg-current" />
           </button>
@@ -335,7 +339,7 @@ export default function TimerBar({
             onClick={start}
             disabled={busy}
             aria-label="Spustit timer"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-white shadow-sm hover:bg-[#0a5d54] disabled:opacity-60"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-white shadow-sm hover:bg-[#0a5d54] disabled:opacity-60"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" className="ml-0.5 h-4 w-4" aria-hidden>
               <path d="M7 4.5v15l13-7.5z" />

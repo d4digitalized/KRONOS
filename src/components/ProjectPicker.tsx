@@ -50,11 +50,13 @@ export default function ProjectPicker({
   value,
   onChange,
   align = "right",
+  hideLabelOnMobile = false,
 }: {
   projects: Project[];
   value: string | null;
   onChange: (projectId: string | null) => void;
   align?: "left" | "right";
+  hideLabelOnMobile?: boolean;
 }) {
   return (
     <Picker
@@ -72,6 +74,7 @@ export default function ProjectPicker({
       iconPath={FOLDER_ICON}
       ariaLabel="Projekt"
       align={align}
+      hideLabelOnMobile={hideLabelOnMobile}
     />
   );
 }

@@ -18,6 +18,7 @@ export default function Picker({
   ariaLabel,
   align = "right",
   disabled = false,
+  hideLabelOnMobile = false,
 }: {
   options: PickerOption[];
   value: string | null;
@@ -27,6 +28,8 @@ export default function Picker({
   ariaLabel: string;
   align?: "left" | "right";
   disabled?: boolean;
+  /** Na mobilu jen ikona/tečka — šetří místo v úzké liště. */
+  hideLabelOnMobile?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -114,7 +117,11 @@ export default function Picker({
             <path d={iconPath} />
           </svg>
         )}
-        <span className="truncate">{selected ? selected.label : placeholder}</span>
+        <span
+          className={`min-w-0 truncate ${hideLabelOnMobile ? "hidden sm:inline" : ""}`}
+        >
+          {selected ? selected.label : placeholder}
+        </span>
         <svg
           viewBox="0 0 24 24"
           fill="none"

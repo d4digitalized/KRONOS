@@ -46,7 +46,7 @@ export default function NotificationsBell({
         unread > 0 ? `Notifikace: ${unread} nepřečtených` : "Notifikace"
       }
       title="Notifikace"
-      className="relative flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-black/5"
+      className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-ink-soft hover:bg-black/5"
     >
       <svg
         viewBox="0 0 24 24"
