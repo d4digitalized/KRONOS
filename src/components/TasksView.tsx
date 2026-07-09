@@ -9,6 +9,7 @@ import { pingNotifyEmails } from "@/lib/notify";
 import { PRIORITIES, priorityColor } from "@/lib/priority";
 import { fmtDate } from "@/lib/format";
 import { cacheGet, cacheSet } from "@/lib/viewCache";
+import { TASKS_CHANGED_EVENT } from "@/lib/tasksChanged";
 import ProjectPicker, { ProjectDot } from "@/components/ProjectPicker";
 import Picker from "@/components/Picker";
 import Avatar from "@/components/Avatar";
@@ -106,6 +107,10 @@ export default function TasksView({
 
   useEffect(() => {
     load();
+    // nový úkol z plovoucího „+" v layoutu — přenačti seznam
+    const onChanged = () => load();
+    window.addEventListener(TASKS_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(TASKS_CHANGED_EVENT, onChanged);
   }, [load]);
 
   // řešitelem smí být jen člen zvoleného projektu (nebo admin ws)

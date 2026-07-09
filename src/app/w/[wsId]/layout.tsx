@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import TimerBar from "@/components/TimerBar";
+import NewTaskFab from "@/components/NewTaskFab";
 import type { Workspace } from "@/lib/types";
 
 export default async function WorkspaceLayout({
@@ -63,6 +64,7 @@ export default async function WorkspaceLayout({
         userName={profile?.full_name || profile?.email || ""}
         userProfile={profile}
       />
+      <NewTaskFab wsId={wsId} userId={user.id} />
     </div>
   );
 }

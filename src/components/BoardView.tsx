@@ -29,6 +29,7 @@ import { posBetween } from "@/lib/position";
 import { startTimer } from "@/lib/timer";
 import { toast } from "@/lib/toast";
 import { confirmDialog } from "@/lib/confirm";
+import { TASKS_CHANGED_EVENT } from "@/lib/tasksChanged";
 import { PRIORITIES } from "@/lib/priority";
 import type { BoardColumn, Label, Membership, Task } from "@/lib/types";
 import BoardCard from "@/components/BoardCard";
@@ -174,6 +175,10 @@ export default function BoardView({
 
   useEffect(() => {
     load();
+    // nový úkol z plovoucího „+" v layoutu — přenačti nástěnku
+    const onChanged = () => load();
+    window.addEventListener(TASKS_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(TASKS_CHANGED_EVENT, onChanged);
   }, [load]);
 
   // stabilní handlery pro karty — bez nich by memo(BoardCard) nefungovalo

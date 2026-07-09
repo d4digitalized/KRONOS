@@ -18,13 +18,11 @@ const USER_ICON =
 export default function NewTaskDialog({
   wsId,
   userId,
-  members,
   onClose,
   onCreated,
 }: {
   wsId: string;
   userId: string;
-  members: Membership[];
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -35,6 +33,7 @@ export default function NewTaskDialog({
   const [dueDate, setDueDate] = useState("");
   const [priority, setPriority] = useState(4);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [members, setMembers] = useState<Membership[]>([]);
   const [grants, setGrants] = useState<Set<string>>(new Set());
   const [projectMembers, setProjectMembers] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -59,14 +58,21 @@ export default function NewTaskDialog({
         .order("position")
         .order("name"),
       supabase
+        .from("workspace_members")
+        .select(
+          "user_id, role, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
+        )
+        .eq("workspace_id", wsId),
+      supabase
         .from("assign_grants")
         .select("target_id")
         .eq("workspace_id", wsId)
         .eq("user_id", userId),
-    ]).then(([projRes, grantRes]) => {
+    ]).then(([projRes, memRes, grantRes]) => {
       const list = (projRes.data as Project[]) ?? [];
       setProjects(list);
       if (list.length === 1) setProjectId(list[0].id); // jediný projekt předvyber
+      setMembers((memRes.data as unknown as Membership[]) ?? []);
       setGrants(new Set((grantRes.data ?? []).map((r) => r.target_id as string)));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -104,7 +110,7 @@ export default function NewTaskDialog({
       );
   const assignable = candidates.filter((m) => canManage(m.user_id));
   const canAssignOthers = assignable.some((m) => m.user_id !== userId);
-  const meName = me?.profiles?.full_name || me?.profiles?.email || "mně";
+  const meName = me?.profiles?.full_name || me?.profiles?.email || "já";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
