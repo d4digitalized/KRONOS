@@ -9,6 +9,7 @@ import { pingNotifyEmails } from "@/lib/notify";
 import { notifyTasksChanged } from "@/lib/tasksChanged";
 import { PRIORITIES, RECURRENCE_OPTIONS, priorityColor } from "@/lib/priority";
 import { projectColor } from "@/components/ProjectPicker";
+import Picker from "@/components/Picker";
 import Avatar from "@/components/Avatar";
 import CardAttachments from "@/components/CardAttachments";
 import CardChecklists from "@/components/CardChecklists";
@@ -122,8 +123,6 @@ export default function CardModal({
   // follow-up „čekám na" — člen nebo externí kontakt (viz CONCEPT-delegovane.md)
   const [followup, setFollowup] = useState<TaskFollowup | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [addingContact, setAddingContact] = useState(false);
-  const [newContactName, setNewContactName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   // našeptávač @zmínek v komentáři
@@ -325,10 +324,6 @@ export default function CardModal({
 
   /** value: "u:<userId>" (člen) nebo "c:<contactId>" (kontakt). */
   async function startWaiting(value: string) {
-    if (value === "__new") {
-      setAddingContact(true);
-      return;
-    }
     if (!value) return;
     const id = value.slice(2);
     const { error } = await supabase.from("task_followups").insert({
@@ -361,10 +356,8 @@ export default function CardModal({
     notifyTasksChanged();
   }
 
-  async function createContactAndWait(e: React.FormEvent) {
-    e.preventDefault();
-    const name = newContactName.trim();
-    if (!name) return;
+  /** „➕ založit kontakt" z pickeru a rovnou na něj čekat. */
+  async function createContactAndWait(name: string) {
     const { data, error } = await supabase
       .from("contacts")
       .insert({ workspace_id: task.workspace_id, name, created_by: userId })
@@ -374,8 +367,6 @@ export default function CardModal({
       toast("Kontakt se nepodařilo založit.", "error");
       return;
     }
-    setNewContactName("");
-    setAddingContact(false);
     await startWaiting(`c:${data.id}`);
   }
 
@@ -783,48 +774,30 @@ export default function CardModal({
                 </button>
               )}
             </>
-          ) : addingContact ? (
-            <form onSubmit={createContactAndWait} className="inline-flex gap-1">
-              <input
-                autoFocus
-                type="text"
-                value={newContactName}
-                onChange={(e) => setNewContactName(e.target.value)}
-                onBlur={() => !newContactName.trim() && setAddingContact(false)}
-                placeholder="Jméno kontaktu…"
-                className="input w-44 px-2 py-0.5 text-xs"
-              />
-              <button type="submit" className="btn-primary px-2 py-0.5 text-xs">
-                OK
-              </button>
-            </form>
           ) : (
-            <select
-              value=""
-              onChange={(e) => startWaiting(e.target.value)}
-              aria-label="Čekám na"
-              title="Follow-up: úkol se přesune do Delegovaných, dokud ho dotyčný nedodá"
-              className="input px-2 py-1 text-xs"
-            >
-              <option value="">— nastavit follow-up —</option>
-              <optgroup label="Členové">
-                {members.map((m) => (
-                  <option key={m.user_id} value={`u:${m.user_id}`}>
-                    {m.profiles?.full_name || m.profiles?.email}
-                  </option>
-                ))}
-              </optgroup>
-              {contacts.length > 0 && (
-                <optgroup label="Externí kontakty">
-                  {contacts.map((c) => (
-                    <option key={c.id} value={`c:${c.id}`}>
-                      {c.name}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              <option value="__new">+ nový kontakt…</option>
-            </select>
+            <Picker
+              options={[
+                ...members
+                  .filter((m) => m.user_id !== userId)
+                  .map((m) => ({
+                    id: `u:${m.user_id}` as string | null,
+                    label: `👤 ${m.profiles?.full_name || m.profiles?.email}`,
+                  })),
+                ...contacts.map((c) => ({
+                  id: `c:${c.id}` as string | null,
+                  label: `👻 ${c.name}`,
+                })),
+              ]}
+              value={null}
+              onChange={(id) => id && startWaiting(id)}
+              placeholder="nastavit follow-up"
+              iconPath="M7 3h10M7 21h10M8 3v4l4 5 4-5V3M8 21v-4l4-5 4 5v4"
+              ariaLabel="Čekám na"
+              align="left"
+              alwaysSearch
+              onCreate={createContactAndWait}
+              createLabel="založit kontakt"
+            />
           )}
         </div>
         )}

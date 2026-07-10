@@ -16,6 +16,7 @@ const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false }
 
 const USER_ICON =
   "M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
+const HOURGLASS_ICON = "M7 3h10M7 21h10M8 3v4l4 5 4-5V3M8 21v-4l4-5 4 5v4";
 
 /** GTD Inbox: rychle nabouchané úkoly bez projektu, řešitele a follow-upu.
     Jakákoli třídící akce (projekt / řešitel / čekám na / hotovo / smazat)
@@ -90,19 +91,22 @@ export default function InboxView({
     return () => window.removeEventListener(TASKS_CHANGED_EVENT, onChanged);
   }, [load]);
 
-  // projekty pro řádkový picker — načtou se jednou
+  // projekty pro řádkový picker
   const [projects, setProjects] = useState<Project[]>([]);
-  useEffect(() => {
-    supabase
+  const loadProjects = useCallback(async () => {
+    const { data } = await supabase
       .from("projects")
       .select("*")
       .eq("workspace_id", wsId)
       .eq("archived", false)
       .order("position")
-      .order("name")
-      .then(({ data }) => setProjects((data as Project[]) ?? []));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsId]);
+      .order("name");
+    setProjects((data as Project[]) ?? []);
+  }, [supabase, wsId]);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
 
   const me = members.find((m) => m.user_id === userId);
   const isAdmin = !!(me?.profiles?.is_super_admin || me?.role === "admin");
@@ -189,6 +193,40 @@ export default function InboxView({
     notifyTasksChanged();
   }
 
+  /** „➕ založit projekt" z pickeru (jen admin — RLS) a rovnou přesunout. */
+  async function createProjectAndMove(task: Task, name: string) {
+    const { data, error } = await supabase
+      .from("projects")
+      .insert({ workspace_id: wsId, name })
+      .select("id")
+      .single();
+    if (error || !data) {
+      toast("Projekt se nepodařilo založit.", "error");
+      return;
+    }
+    await loadProjects();
+    await setProject(task, data.id as string);
+  }
+
+  /** „➕ založit kontakt" z pickeru a rovnou na něj čekat. */
+  async function createContactAndWait(task: Task, name: string) {
+    const { data, error } = await supabase
+      .from("contacts")
+      .insert({ workspace_id: wsId, name, created_by: userId })
+      .select("id")
+      .single();
+    if (error || !data) {
+      toast("Kontakt se nepodařilo založit.", "error");
+      return;
+    }
+    setContacts((prev) =>
+      [...prev, { id: data.id, workspace_id: wsId, name, email: "", note: "", created_by: userId, created_at: "" } as Contact].sort(
+        (a, b) => a.name.localeCompare(b.name, "cs")
+      )
+    );
+    await setWaiting(task, `c:${data.id}`);
+  }
+
   async function done(task: Task) {
     const { error } = await supabase
       .from("tasks")
@@ -273,6 +311,10 @@ export default function InboxView({
                   onChange={(id) => setProject(task, id)}
                   align="right"
                   hideLabelOnMobile
+                  alwaysSearch
+                  onCreate={
+                    isAdmin ? (name) => createProjectAndMove(task, name) : undefined
+                  }
                 />
                 <Picker
                   options={assignable.map((m) => ({
@@ -289,35 +331,33 @@ export default function InboxView({
                   ariaLabel="Řešitel"
                   align="right"
                   hideLabelOnMobile
+                  alwaysSearch
                 />
                 {canDelegate && (
-                  <select
-                    value=""
-                    onChange={(e) => setWaiting(task, e.target.value)}
-                    aria-label="Čekám na"
-                    title="Follow-up: přesune úkol do Delegovaných"
-                    className="input max-w-28 px-1.5 py-1 text-xs"
-                  >
-                    <option value="">⏳ Čekám na…</option>
-                    <optgroup label="Členové">
-                      {members
+                  <Picker
+                    options={[
+                      ...members
                         .filter((m) => m.user_id !== userId)
-                        .map((m) => (
-                          <option key={m.user_id} value={`u:${m.user_id}`}>
-                            {m.profiles?.full_name || m.profiles?.email}
-                          </option>
-                        ))}
-                    </optgroup>
-                    {contacts.length > 0 && (
-                      <optgroup label="Externí kontakty">
-                        {contacts.map((c) => (
-                          <option key={c.id} value={`c:${c.id}`}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
+                        .map((m) => ({
+                          id: `u:${m.user_id}` as string | null,
+                          label: `👤 ${m.profiles?.full_name || m.profiles?.email}`,
+                        })),
+                      ...contacts.map((c) => ({
+                        id: `c:${c.id}` as string | null,
+                        label: `👻 ${c.name}`,
+                      })),
+                    ]}
+                    value={null}
+                    onChange={(id) => id && setWaiting(task, id)}
+                    placeholder="Čekám na"
+                    iconPath={HOURGLASS_ICON}
+                    ariaLabel="Čekám na"
+                    align="right"
+                    hideLabelOnMobile
+                    alwaysSearch
+                    onCreate={(name) => createContactAndWait(task, name)}
+                    createLabel="založit kontakt"
+                  />
                 )}
                 <button
                   onClick={() => remove(task)}

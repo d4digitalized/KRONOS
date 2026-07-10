@@ -51,12 +51,17 @@ export default function ProjectPicker({
   onChange,
   align = "right",
   hideLabelOnMobile = false,
+  alwaysSearch = false,
+  onCreate,
 }: {
   projects: Project[];
   value: string | null;
   onChange: (projectId: string | null) => void;
   align?: "left" | "right";
   hideLabelOnMobile?: boolean;
+  alwaysSearch?: boolean;
+  /** „➕ založit projekt" na konci nabídky (jen admin — RLS). */
+  onCreate?: (name: string) => void;
 }) {
   return (
     <Picker
@@ -75,6 +80,9 @@ export default function ProjectPicker({
       ariaLabel="Projekt"
       align={align}
       hideLabelOnMobile={hideLabelOnMobile}
+      alwaysSearch={alwaysSearch}
+      onCreate={onCreate}
+      createLabel="založit projekt"
     />
   );
 }

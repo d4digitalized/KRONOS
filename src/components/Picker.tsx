@@ -19,6 +19,9 @@ export default function Picker({
   align = "right",
   disabled = false,
   hideLabelOnMobile = false,
+  alwaysSearch = false,
+  onCreate,
+  createLabel = "založit",
 }: {
   options: PickerOption[];
   value: string | null;
@@ -30,6 +33,11 @@ export default function Picker({
   disabled?: boolean;
   /** Na mobilu jen ikona/tečka — šetří místo v úzké liště. */
   hideLabelOnMobile?: boolean;
+  /** Hledací pole vždy (jinak až od 8 možností). */
+  alwaysSearch?: boolean;
+  /** Když dotaz nesedí na žádnou možnost, nabídne na konci „➕ createLabel „dotaz"". */
+  onCreate?: (query: string) => void;
+  createLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -38,12 +46,19 @@ export default function Picker({
   const searchRef = useRef<HTMLInputElement>(null);
 
   const selected = options.find((o) => o.id !== null && o.id === value) ?? null;
-  const showSearch = options.length > 7;
+  const showSearch = alwaysSearch || options.length > 7;
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
   }, [options, query]);
+
+  // „➕ založit" jen když je co zakládat a dotaz přesně nesedí na existující
+  const trimmed = query.trim();
+  const canCreate =
+    !!onCreate &&
+    trimmed.length > 0 &&
+    !options.some((o) => o.label.toLowerCase() === trimmed.toLowerCase());
 
   useEffect(() => {
     if (!open) return;
@@ -69,16 +84,26 @@ export default function Picker({
     setOpen(false);
   }
 
+  function create() {
+    onCreate?.(trimmed);
+    setOpen(false);
+  }
+
+  // „➕ založit" se chová jako poslední položka seznamu (index visible.length)
+  const lastIndex = visible.length - 1 + (canCreate ? 1 : 0);
+
   function onListKeyDown(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((i) => Math.min(i + 1, visible.length - 1));
+      setActive((i) => Math.min(i + 1, lastIndex));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (visible[active]) pick(visible[active].id);
+      else if (canCreate && active >= visible.length) create();
+      else if (canCreate && visible.length === 0) create();
     }
   }
 
@@ -159,7 +184,7 @@ export default function Picker({
             </div>
           )}
           <ul role="listbox" aria-label={ariaLabel} className="max-h-72 overflow-y-auto p-1">
-            {visible.length === 0 && (
+            {visible.length === 0 && !canCreate && (
               <li className="px-2.5 py-2 text-sm text-ink-soft/70">
                 Nic nenalezeno.
               </li>
@@ -204,6 +229,20 @@ export default function Picker({
                 </li>
               );
             })}
+            {canCreate && (
+              <li role="option" aria-selected={false}>
+                <button
+                  type="button"
+                  onClick={create}
+                  onMouseEnter={() => setActive(visible.length)}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm text-accent ${
+                    active >= visible.length ? "bg-accent-soft" : ""
+                  }`}
+                >
+                  ➕ {createLabel} „{trimmed}"
+                </button>
+              </li>
+            )}
           </ul>
         </div>
       )}

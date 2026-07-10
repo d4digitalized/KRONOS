@@ -12,12 +12,12 @@ import type { Contact, Membership, Project } from "@/lib/types";
 
 const USER_ICON =
   "M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
+const HOURGLASS_ICON = "M7 3h10M7 21h10M8 3v4l4 5 4-5V3M8 21v-4l4-5 4 5v4";
 
-/** Vybraný cíl follow-upu: člen (u), kontakt (c), nebo kontakt k založení. */
+/** Vybraný cíl follow-upu: člen (u), nebo externí kontakt (c). */
 type WaitTarget =
   | { kind: "u"; id: string; name: string }
-  | { kind: "c"; id: string; name: string }
-  | { kind: "new"; name: string };
+  | { kind: "c"; id: string; name: string };
 
 /** Rychlé založení úkolu. Řešitel je předvyplněný na mě; koho smím přiřadit
     navíc, řeší role (admin) a granty — stejná pravidla jako v kartě.
@@ -50,8 +50,7 @@ export default function NewTaskDialog({
   const [grants, setGrants] = useState<Set<string>>(new Set());
   const [projectMembers, setProjectMembers] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
-  // follow-up „čekám na": psaný dotaz + vybraný cíl + „zadat mu to i jako úkol"
-  const [waitQuery, setWaitQuery] = useState("");
+  // follow-up „čekám na": vybraný cíl + „zadat mu to i jako úkol"
   const [waitSel, setWaitSel] = useState<WaitTarget | null>(null);
   const [assignToo, setAssignToo] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
@@ -140,25 +139,48 @@ export default function NewTaskDialog({
 
   // ---------------------------------------------------------------- čekám na
 
-  const q = waitQuery.trim().toLowerCase();
-  const memberHits = q
-    ? members
-        .filter((m) => m.user_id !== userId)
-        .filter((m) => memberName(m).toLowerCase().includes(q))
-        .slice(0, 4)
-    : [];
-  const contactHits = q
-    ? contacts.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 4)
-    : [];
-  const exactHit =
-    memberHits.some((m) => memberName(m).toLowerCase() === q) ||
-    contactHits.some((c) => c.name.toLowerCase() === q);
-
-  function pickWait(sel: WaitTarget) {
-    setWaitSel(sel);
-    setWaitQuery("");
-    // vybraný člen už je řešitelem → není co „zadávat navíc"
+  /** id z pickeru: "u:<userId>" / "c:<contactId>" / null = zrušit. */
+  function pickWait(id: string | null) {
     setAssignToo(false);
+    if (!id) {
+      setWaitSel(null);
+      return;
+    }
+    const raw = id.slice(2);
+    if (id.startsWith("u:")) {
+      const m = members.find((x) => x.user_id === raw);
+      if (m) setWaitSel({ kind: "u", id: raw, name: memberName(m) });
+    } else {
+      const c = contacts.find((x) => x.id === raw);
+      if (c) setWaitSel({ kind: "c", id: raw, name: c.name });
+    }
+  }
+
+  /** „➕ založit kontakt" z pickeru — založí ho hned a vybere. */
+  async function createContactAndPick(name: string) {
+    const { data, error } = await supabase
+      .from("contacts")
+      .insert({ workspace_id: wsId, name, created_by: userId })
+      .select("id")
+      .single();
+    if (error || !data) {
+      toast("Kontakt se nepodařilo založit.", "error");
+      return;
+    }
+    const contact = {
+      id: data.id as string,
+      workspace_id: wsId,
+      name,
+      email: "",
+      note: "",
+      created_by: userId,
+      created_at: "",
+    } as Contact;
+    setContacts((prev) =>
+      [...prev, contact].sort((a, b) => a.name.localeCompare(b.name, "cs"))
+    );
+    setAssignToo(false);
+    setWaitSel({ kind: "c", id: contact.id, name });
   }
 
   /** Follow-up přepínač u cizího řešitele: čekám na = řešitel. */
@@ -257,38 +279,22 @@ export default function NewTaskDialog({
     }
     if (assigneeIds.size > 0) pingNotifyEmails();
 
-    // follow-up: čekám na člena / kontakt (nový kontakt rovnou založ)
+    // follow-up: čekám na člena / kontakt
     if (canDelegate && waitSel) {
-      let contactId: string | null = null;
-      if (waitSel.kind === "new") {
-        const { data: c, error: cError } = await supabase
-          .from("contacts")
-          .insert({ workspace_id: wsId, name: waitSel.name, created_by: userId })
-          .select("id")
-          .single();
-        if (cError || !c) toast("Kontakt se nepodařilo založit.", "error");
-        else contactId = c.id as string;
-      } else if (waitSel.kind === "c") {
-        contactId = waitSel.id;
-      }
-      if (waitSel.kind === "u" || contactId) {
-        const { error: fuError } = await supabase.from("task_followups").insert({
-          task_id: created.id,
-          workspace_id: wsId,
-          created_by: userId,
-          waiting_user_id: waitSel.kind === "u" ? waitSel.id : null,
-          waiting_contact_id: contactId,
-        });
-        if (fuError) toast("Follow-up se nepodařilo nastavit.", "error");
-      }
+      const { error: fuError } = await supabase.from("task_followups").insert({
+        task_id: created.id,
+        workspace_id: wsId,
+        created_by: userId,
+        waiting_user_id: waitSel.kind === "u" ? waitSel.id : null,
+        waiting_contact_id: waitSel.kind === "c" ? waitSel.id : null,
+      });
+      if (fuError) toast("Follow-up se nepodařilo nastavit.", "error");
     }
 
     setSaving(false);
     toast(`Úkol přidán: ${name}`);
     onCreated();
   }
-
-  const showWaitSuggest = q.length > 0 && !waitSel;
 
   return (
     <div
@@ -362,105 +368,30 @@ export default function NewTaskDialog({
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-ink-soft">⏳ Čekám na</span>
-              {waitSel ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
-                  {waitSel.kind === "u" ? "👤" : waitSel.kind === "c" ? "👻" : "➕"}{" "}
-                  {waitSel.name}
-                  {waitSel.kind === "new" && " (nový kontakt)"}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWaitSel(null);
-                      setAssignToo(false);
-                    }}
-                    aria-label="Zrušit čekání"
-                    className="ml-0.5 text-amber-800/60 hover:text-amber-900"
-                  >
-                    ✕
-                  </button>
-                </span>
-              ) : (
-                <div className="relative min-w-44 flex-1">
-                  <input
-                    type="text"
-                    value={waitQuery}
-                    onChange={(e) => setWaitQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter" || !showWaitSuggest) return;
-                      e.preventDefault();
-                      if (memberHits[0])
-                        pickWait({
-                          kind: "u",
-                          id: memberHits[0].user_id,
-                          name: memberName(memberHits[0]),
-                        });
-                      else if (contactHits[0])
-                        pickWait({
-                          kind: "c",
-                          id: contactHits[0].id,
-                          name: contactHits[0].name,
-                        });
-                      else pickWait({ kind: "new", name: waitQuery.trim() });
-                    }}
-                    placeholder="Jméno člověka… (nepovinné)"
-                    aria-label="Čekám na"
-                    className="input w-full px-2 py-1 text-sm"
-                  />
-                  {showWaitSuggest && (
-                    <ul
-                      role="listbox"
-                      aria-label="Čekat na"
-                      className="absolute left-0 top-full z-10 mt-1 w-64 overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-lg"
-                    >
-                      {memberHits.map((m) => (
-                        <li key={m.user_id}>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              pickWait({
-                                kind: "u",
-                                id: m.user_id,
-                                name: memberName(m),
-                              })
-                            }
-                            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-accent-soft"
-                          >
-                            👤 <span className="min-w-0 flex-1 truncate">{memberName(m)}</span>
-                            <span className="text-xs text-ink-soft/60">člen</span>
-                          </button>
-                        </li>
-                      ))}
-                      {contactHits.map((c) => (
-                        <li key={c.id}>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              pickWait({ kind: "c", id: c.id, name: c.name })
-                            }
-                            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-accent-soft"
-                          >
-                            👻 <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                            <span className="text-xs text-ink-soft/60">kontakt</span>
-                          </button>
-                        </li>
-                      ))}
-                      {!exactHit && (
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              pickWait({ kind: "new", name: waitQuery.trim() })
-                            }
-                            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-accent hover:bg-accent-soft"
-                          >
-                            ➕ založit kontakt „{waitQuery.trim()}"
-                          </button>
-                        </li>
-                      )}
-                    </ul>
-                  )}
-                </div>
-              )}
+              <Picker
+                options={[
+                  { id: null, label: "— nikdo —" },
+                  ...members
+                    .filter((m) => m.user_id !== userId)
+                    .map((m) => ({
+                      id: `u:${m.user_id}` as string | null,
+                      label: `👤 ${memberName(m)}`,
+                    })),
+                  ...contacts.map((c) => ({
+                    id: `c:${c.id}` as string | null,
+                    label: `👻 ${c.name}`,
+                  })),
+                ]}
+                value={waitSel ? `${waitSel.kind}:${waitSel.id}` : null}
+                onChange={pickWait}
+                placeholder="nikdo (nepovinné)"
+                iconPath={HOURGLASS_ICON}
+                ariaLabel="Čekám na"
+                align="left"
+                alwaysSearch
+                onCreate={createContactAndPick}
+                createLabel="založit kontakt"
+              />
             </div>
 
             {/* čekaný člen zatím není řešitel → nabídni zadání */}
