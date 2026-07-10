@@ -73,6 +73,29 @@ export type Label = {
   name: string;
 };
 
+/** Externí člověk bez účtu — jen evidence, sdílená za workspace. */
+export type Contact = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  email: string;
+  note: string;
+  created_by: string | null;
+  created_at: string;
+};
+
+/** Čekání na dodání úkolu (GTD „Waiting For"); právě jeden z user/contact. */
+export type TaskFollowup = {
+  task_id: string;
+  workspace_id: string;
+  waiting_user_id: string | null;
+  waiting_contact_id: string | null;
+  created_by: string;
+  created_at: string;
+  contacts?: { name: string } | null;
+  tasks?: Task;
+};
+
 export type AppNotification = {
   id: string;
   user_id: string;
@@ -144,7 +167,9 @@ export type TaskActivityKind =
   | "completed"
   | "reopened"
   | "assigned"
-  | "unassigned";
+  | "unassigned"
+  | "followup_set"
+  | "followup_cleared";
 
 export type TaskActivity = {
   id: string;

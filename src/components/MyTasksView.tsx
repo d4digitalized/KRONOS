@@ -67,7 +67,7 @@ export default function MyTasksView({
   const [openTask, setOpenTask] = useState<Task | null>(null);
 
   const load = useCallback(async () => {
-    const [mineRes, memRes] = await Promise.all([
+    const [mineRes, memRes, fuRes] = await Promise.all([
       supabase
         .from("task_assignees")
         .select(
@@ -83,9 +83,17 @@ export default function MyTasksView({
           "user_id, role, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
         )
         .eq("workspace_id", wsId),
+      // úkoly, kde jsem nastavil follow-up, žijí na stránce Delegované
+      supabase
+        .from("task_followups")
+        .select("task_id")
+        .eq("created_by", userId)
+        .eq("workspace_id", wsId),
     ]);
+    const waiting = new Set((fuRes.data ?? []).map((r) => r.task_id as string));
     const mine = ((mineRes.data ?? []) as unknown as { tasks: Task }[])
       .map((r) => r.tasks)
+      .filter((t) => !waiting.has(t.id))
       .sort(
         (a, b) =>
           (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999") ||

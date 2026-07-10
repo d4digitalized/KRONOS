@@ -80,6 +80,7 @@ export default function BoardView({
   const [editColName, setEditColName] = useState("");
   const [cardLabels, setCardLabels] = useState<Record<string, Label[]>>({});
   const [cardAssignees, setCardAssignees] = useState<Record<string, string[]>>({});
+  const [cardWaiting, setCardWaiting] = useState<Record<string, string>>({});
   const [subCounts, setSubCounts] = useState<Record<string, { done: number; total: number }>>({});
   const [wsLabels, setWsLabels] = useState<Label[]>([]);
   // filtry
@@ -96,7 +97,7 @@ export default function BoardView({
   );
 
   const load = useCallback(async () => {
-    const [colRes, taskRes, memRes, subRes, labelRes, tlRes, taRes] = await Promise.all([
+    const [colRes, taskRes, memRes, subRes, labelRes, tlRes, taRes, fuRes] = await Promise.all([
       supabase
         .from("board_columns")
         .select("*")
@@ -128,6 +129,10 @@ export default function BoardView({
         .from("task_assignees")
         .select("task_id, user_id, tasks!inner(project_id)")
         .eq("tasks.project_id", projectId),
+      supabase
+        .from("task_followups")
+        .select("task_id, waiting_user_id, contacts(name), tasks!inner(project_id)")
+        .eq("tasks.project_id", projectId),
     ]);
     const cols = (colRes.data as BoardColumn[]) ?? [];
     const tasks = (taskRes.data as Task[]) ?? [];
@@ -158,6 +163,22 @@ export default function BoardView({
       ];
     }
     setCardAssignees(assigneesByTask);
+
+    // štítek „čeká na X" — jméno člena z memRes, kontaktu z embedded contacts
+    const mems = (memRes.data as unknown as Membership[]) ?? [];
+    const waitingByTask: Record<string, string> = {};
+    for (const row of fuRes.data ?? []) {
+      const contact = row.contacts as unknown as { name: string } | null;
+      const member = row.waiting_user_id
+        ? mems.find((m) => m.user_id === row.waiting_user_id)
+        : null;
+      const name = row.waiting_user_id
+        ? member?.profiles?.full_name || member?.profiles?.email
+        : contact?.name;
+      if (name) waitingByTask[row.task_id as string] = name;
+    }
+    setCardWaiting(waitingByTask);
+
     const byCol: CardsByCol = {};
     const lost: Task[] = [];
     for (const col of cols) byCol[col.id] = [];
@@ -169,7 +190,7 @@ export default function BoardView({
     setColumns(cols);
     setCards(byCol);
     setOrphans(lost);
-    setMembers((memRes.data as unknown as Membership[]) ?? []);
+    setMembers(mems);
     setLoading(false);
   }, [supabase, projectId, wsId]);
 
@@ -514,6 +535,7 @@ export default function BoardView({
                         labels={cardLabels[task.id]}
                         assigneeIds={cardAssignees[task.id]}
                         subtaskCount={subCounts[task.id]}
+                        waitingOn={cardWaiting[task.id]}
                         onOpen={openCard}
                         onStart={startCard}
                       />

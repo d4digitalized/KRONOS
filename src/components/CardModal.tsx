@@ -6,12 +6,14 @@ import { startTimer } from "@/lib/timer";
 import { toast } from "@/lib/toast";
 import { confirmDialog } from "@/lib/confirm";
 import { pingNotifyEmails } from "@/lib/notify";
+import { notifyTasksChanged } from "@/lib/tasksChanged";
 import { PRIORITIES, RECURRENCE_OPTIONS, priorityColor } from "@/lib/priority";
 import { projectColor } from "@/components/ProjectPicker";
 import Avatar from "@/components/Avatar";
 import CardAttachments from "@/components/CardAttachments";
 import CardChecklists from "@/components/CardChecklists";
 import type {
+  Contact,
   Label,
   Membership,
   Project,
@@ -19,6 +21,7 @@ import type {
   Task,
   TaskActivity,
   TaskComment,
+  TaskFollowup,
 } from "@/lib/types";
 
 /** Věta aktivity v češtině podle typu události. */
@@ -45,6 +48,10 @@ function activityText(a: TaskActivity): string {
       return `přiřadil/a ${(m.user as string) ?? "kolegu"}`;
     case "unassigned":
       return `odebral/a ${(m.user as string) ?? "kolegu"}`;
+    case "followup_set":
+      return `nastavil/a čekání na ${(m.who as string) ?? "?"}`;
+    case "followup_cleared":
+      return `zrušil/a čekání na ${(m.who as string) ?? "?"}`;
     default:
       return "upravil/a kartu";
   }
@@ -111,6 +118,11 @@ export default function CardModal({
   const [addingLabel, setAddingLabel] = useState(false);
   const [subtasks, setSubtasks] = useState<Task[]>([]);
   const [newSubtask, setNewSubtask] = useState("");
+  // follow-up „čekám na" — člen nebo externí kontakt (viz CONCEPT-delegovane.md)
+  const [followup, setFollowup] = useState<TaskFollowup | null>(null);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [addingContact, setAddingContact] = useState(false);
+  const [newContactName, setNewContactName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   // našeptávač @zmínek v komentáři
@@ -168,6 +180,23 @@ export default function CardModal({
     setSubtasks((data as Task[]) ?? []);
   }, [supabase, task.id]);
 
+  const loadFollowup = useCallback(async () => {
+    const [fuRes, cRes] = await Promise.all([
+      supabase
+        .from("task_followups")
+        .select("*, contacts(name)")
+        .eq("task_id", task.id)
+        .maybeSingle(),
+      supabase
+        .from("contacts")
+        .select("*")
+        .eq("workspace_id", task.workspace_id)
+        .order("name"),
+    ]);
+    if (!fuRes.error) setFollowup((fuRes.data as TaskFollowup) ?? null);
+    setContacts((cRes.data as Contact[]) ?? []);
+  }, [supabase, task.id, task.workspace_id]);
+
   const loadProjects = useCallback(async () => {
     const { data } = await supabase
       .from("projects")
@@ -204,6 +233,7 @@ export default function CardModal({
     loadSubtasks();
     loadAssignees();
     loadProjects();
+    loadFollowup();
   }, [
     loadComments,
     loadActivity,
@@ -211,6 +241,7 @@ export default function CardModal({
     loadSubtasks,
     loadAssignees,
     loadProjects,
+    loadFollowup,
   ]);
 
   // kdo smí měnit čí přiřazení: admin komukoli, člen sobě + s grantem
@@ -276,6 +307,64 @@ export default function CardModal({
       return;
     }
     pingNotifyEmails();
+  }
+
+  // ---------------------------------------------------------------- follow-up
+
+  /** value: "u:<userId>" (člen) nebo "c:<contactId>" (kontakt). */
+  async function startWaiting(value: string) {
+    if (value === "__new") {
+      setAddingContact(true);
+      return;
+    }
+    if (!value) return;
+    const id = value.slice(2);
+    const { error } = await supabase.from("task_followups").insert({
+      task_id: task.id,
+      workspace_id: task.workspace_id,
+      created_by: userId,
+      waiting_user_id: value.startsWith("u:") ? id : null,
+      waiting_contact_id: value.startsWith("c:") ? id : null,
+    });
+    if (error) {
+      toast("Čekání se nepodařilo nastavit.", "error");
+      return;
+    }
+    loadFollowup();
+    loadActivity();
+    notifyTasksChanged(); // úkol se přesouvá z Moje úkoly do Delegovaných
+  }
+
+  async function stopWaiting() {
+    const { error } = await supabase
+      .from("task_followups")
+      .delete()
+      .eq("task_id", task.id);
+    if (error) {
+      toast("Zrušení čekání se nezdařilo.", "error");
+      return;
+    }
+    loadFollowup();
+    loadActivity();
+    notifyTasksChanged();
+  }
+
+  async function createContactAndWait(e: React.FormEvent) {
+    e.preventDefault();
+    const name = newContactName.trim();
+    if (!name) return;
+    const { data, error } = await supabase
+      .from("contacts")
+      .insert({ workspace_id: task.workspace_id, name, created_by: userId })
+      .select("id")
+      .single();
+    if (error || !data) {
+      toast("Kontakt se nepodařilo založit.", "error");
+      return;
+    }
+    setNewContactName("");
+    setAddingContact(false);
+    await startWaiting(`c:${data.id}`);
   }
 
   async function save() {
@@ -489,6 +578,21 @@ export default function CardModal({
 
   const doneSubtasks = subtasks.filter((s) => s.completed_at).length;
 
+  // jméno čekaného: člen z members, kontakt z embedded contacts
+  const waitingMember = followup?.waiting_user_id
+    ? members.find((m) => m.user_id === followup.waiting_user_id)
+    : null;
+  const waitingName = followup
+    ? followup.waiting_user_id
+      ? waitingMember?.profiles?.full_name || waitingMember?.profiles?.email || "člen"
+      : (followup.contacts?.name ?? "kontakt")
+    : null;
+  const followupSetter = followup
+    ? members.find((m) => m.user_id === followup.created_by)
+    : null;
+  const canClearWaiting =
+    !!followup && (followup.created_by === userId || isAdmin);
+
   // komentáře + systémová aktivita v jednom časovém toku
   const timeline: {
     id: string;
@@ -612,6 +716,82 @@ export default function CardModal({
               </button>
             );
           })}
+        </div>
+
+        {/* follow-up: úkol čeká na dodání členem či externím kontaktem */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-ink-soft/70">Čekám na:</span>
+          {followup ? (
+            <>
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
+                title={`Follow-up nastavil/a ${
+                  followupSetter?.profiles?.full_name ||
+                  followupSetter?.profiles?.email ||
+                  "kolega"
+                }`}
+              >
+                ⏳ {waitingName}
+                <span className="text-amber-800/60">
+                  od{" "}
+                  {new Date(followup.created_at).toLocaleDateString("cs-CZ", {
+                    day: "numeric",
+                    month: "numeric",
+                  })}
+                </span>
+              </span>
+              {canClearWaiting && (
+                <button
+                  onClick={stopWaiting}
+                  className="rounded-full px-2 py-0.5 text-xs text-ink-soft/70 hover:bg-black/5"
+                >
+                  Zrušit čekání
+                </button>
+              )}
+            </>
+          ) : addingContact ? (
+            <form onSubmit={createContactAndWait} className="inline-flex gap-1">
+              <input
+                autoFocus
+                type="text"
+                value={newContactName}
+                onChange={(e) => setNewContactName(e.target.value)}
+                onBlur={() => !newContactName.trim() && setAddingContact(false)}
+                placeholder="Jméno kontaktu…"
+                className="input w-44 px-2 py-0.5 text-xs"
+              />
+              <button type="submit" className="btn-primary px-2 py-0.5 text-xs">
+                OK
+              </button>
+            </form>
+          ) : (
+            <select
+              value=""
+              onChange={(e) => startWaiting(e.target.value)}
+              aria-label="Čekám na"
+              title="Follow-up: úkol se přesune do Delegovaných, dokud ho dotyčný nedodá"
+              className="input px-2 py-1 text-xs"
+            >
+              <option value="">— nastavit follow-up —</option>
+              <optgroup label="Členové">
+                {members.map((m) => (
+                  <option key={m.user_id} value={`u:${m.user_id}`}>
+                    {m.profiles?.full_name || m.profiles?.email}
+                  </option>
+                ))}
+              </optgroup>
+              {contacts.length > 0 && (
+                <optgroup label="Externí kontakty">
+                  {contacts.map((c) => (
+                    <option key={c.id} value={`c:${c.id}`}>
+                      {c.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <option value="__new">+ nový kontakt…</option>
+            </select>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

@@ -14,6 +14,7 @@ function BoardCard({
   labels = [],
   assigneeIds = [],
   subtaskCount,
+  waitingOn,
   onOpen,
   onStart,
 }: {
@@ -22,6 +23,8 @@ function BoardCard({
   labels?: Label[];
   assigneeIds?: string[];
   subtaskCount?: { done: number; total: number };
+  /** jméno člověka, na kterého karta čeká (follow-up) */
+  waitingOn?: string;
   onOpen: (task: Task) => void;
   onStart: (task: Task) => void;
 }) {
@@ -59,6 +62,14 @@ function BoardCard({
           </span>
         )}
       </p>
+      {waitingOn && !isDone && (
+        <span
+          className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800"
+          title={`Čeká na dodání: ${waitingOn}`}
+        >
+          ⏳ čeká na {waitingOn}
+        </span>
+      )}
       {labels.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {labels.map((label) => (

@@ -17,6 +17,7 @@ export const ICONS = {
   expand: "M13 7l5 5-5 5M6 7l5 5-5 5",
   menu: "M4 6h16M4 12h16M4 18h16",
   close: "M18 6L6 18M6 6l12 12",
+  hourglass: "M7 3h10M7 21h10M8 3v4l4 5 4-5V3M8 21v-4l4-5 4 5v4",
 } as const;
 
 export type IconName = keyof typeof ICONS;
@@ -58,6 +59,7 @@ export function buildNavSections(
       title: "Sledování",
       items: [
         { href: `/w/${wsId}/my`, label: "Moje úkoly", icon: "user" },
+        { href: `/w/${wsId}/delegated`, label: "Delegované", icon: "hourglass" },
         { href: `/w/${wsId}`, label: "Projekty", icon: "board" },
         { href: `/w/${wsId}/tasks`, label: "Úkoly", icon: "check" },
         { href: `/w/${wsId}/time`, label: "Report", icon: "clock" },

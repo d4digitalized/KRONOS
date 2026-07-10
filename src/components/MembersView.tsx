@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/members";
 import Picker from "@/components/Picker";
 import Avatar, { avatarInitials } from "@/components/Avatar";
+import ContactsSection from "@/components/ContactsSection";
 import { toast } from "@/lib/toast";
 import { confirmDialog } from "@/lib/confirm";
 import type { Membership, Role } from "@/lib/types";
@@ -494,6 +495,10 @@ export default function MembersView({
         ))}
       </div>
       )}
+
+      <div className="border-t border-line/70 pt-4">
+        <ContactsSection wsId={wsId} />
+      </div>
     </div>
   );
 }
