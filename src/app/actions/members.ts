@@ -171,6 +171,36 @@ export async function setMemberNotifyEmail(
   return { ok: true };
 }
 
+/** Odemkne/zamkne členovi funkci navíc: delegaci úkolů („Čekám na",
+    Delegované) nebo skryté úkoly. Adminům je aplikace dává vždy bez ohledu
+    na flag. Jen admin workspace. */
+export async function setMemberFlag(
+  wsId: string,
+  userId: string,
+  flag: "can_delegate" | "can_hide",
+  value: boolean
+): Promise<{ ok?: true; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Nejsi přihlášený." };
+
+  const { data: isAdmin } = await supabase.rpc("is_ws_admin", { ws: wsId });
+  if (!isAdmin) return { error: "Tuhle funkci odemyká jen admin." };
+
+  // přes service-role: RLS update na workspace_members je jen pro super-admina,
+  // oprávnění tu hlídá kontrola is_ws_admin výše
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("workspace_members")
+    .update({ [flag]: value })
+    .eq("workspace_id", wsId)
+    .eq("user_id", userId);
+  if (error) return { error: "Uložení se nezdařilo." };
+  return { ok: true };
+}
+
 export async function inviteMember(
   wsId: string,
   email: string,

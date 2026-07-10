@@ -109,6 +109,7 @@ export default function CardModal({
   const [priority, setPriority] = useState(task.priority ?? 4);
   const [recurrence, setRecurrence] = useState<string>(task.recurrence ?? "");
   const [done, setDone] = useState(!!task.completed_at);
+  const [isPrivate, setIsPrivate] = useState(!!task.is_private);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [activity, setActivity] = useState<TaskActivity[]>([]);
   const [newComment, setNewComment] = useState("");
@@ -211,10 +212,12 @@ export default function CardModal({
   const loadAssignees = useCallback(async () => {
     const [mineRes, pmRes, grantRes] = await Promise.all([
       supabase.from("task_assignees").select("user_id").eq("task_id", task.id),
-      supabase
-        .from("project_members")
-        .select("user_id")
-        .eq("project_id", task.project_id),
+      task.project_id
+        ? supabase
+            .from("project_members")
+            .select("user_id")
+            .eq("project_id", task.project_id)
+        : Promise.resolve({ data: [] as { user_id: string }[] }),
       supabase
         .from("assign_grants")
         .select("target_id")
@@ -249,11 +252,20 @@ export default function CardModal({
   const isAdmin = !!(me?.profiles?.is_super_admin || me?.role === "admin");
   const canManage = (id: string) => isAdmin || id === userId || grants.has(id);
 
+  // delegace („Čekám na") je odemknutá adminům a členům s can_delegate
+  const canDelegate = isAdmin || !!me?.can_delegate;
+  // skryté úkoly smí přepínat jen autor s odemknutou funkcí (adminům vždy)
+  const canTogglePrivate =
+    task.created_by === userId && (isAdmin || !!me?.can_hide);
+
   // admin smí přiřadit kohokoli z firmy (nečlena projektu na projekt doplníme
-  // při přiřazení, jinak by úkol neviděl); člen vybírá jen z členů projektu
-  const assignable = isAdmin
-    ? members
-    : members.filter((m) => projectMembers.has(m.user_id) || m.role === "admin");
+  // při přiřazení, jinak by úkol neviděl); člen vybírá jen z členů projektu.
+  // Úkol bez projektu: kdokoli z firmy; skrytý úkol: jen já sám.
+  const assignable = isPrivate
+    ? members.filter((m) => m.user_id === userId)
+    : isAdmin || !task.project_id
+      ? members
+      : members.filter((m) => projectMembers.has(m.user_id) || m.role === "admin");
 
   async function toggleAssignee(targetId: string) {
     const wasOn = assignees.has(targetId);
@@ -279,7 +291,7 @@ export default function CardModal({
 
     // řešitel musí být člen projektu, jinak by úkol vůbec neviděl (RLS).
     // Admin proto nečlena při přiřazení rovnou doplní na projekt.
-    if (isAdmin && !projectMembers.has(targetId)) {
+    if (task.project_id && isAdmin && !projectMembers.has(targetId)) {
       const { error: pmError } = await supabase
         .from("project_members")
         .upsert(
@@ -379,10 +391,20 @@ export default function CardModal({
         ? (task.completed_at ?? new Date().toISOString())
         : null,
       project_id: projectId,
+      is_private: isPrivate,
     };
     // cílový projekt má vlastní sloupce → kartu vyřadíme ze sloupce, board ji
     // při načtení zařadí do prvního sloupce nového projektu
     if (projectChanged) patch.column_id = null;
+
+    // nově skrytá karta nesmí mít cizí řešitele (nikdo jiný ji neuvidí)
+    if (isPrivate && !task.is_private) {
+      await supabase
+        .from("task_assignees")
+        .delete()
+        .eq("task_id", task.id)
+        .neq("user_id", userId);
+    }
 
     const { error } = await supabase
       .from("tasks")
@@ -620,14 +642,16 @@ export default function CardModal({
       >
         {/* horní lišta: projekt (přesun karty mezi projekty) + zavřít */}
         <div className="flex items-center gap-2 border-b border-line px-3 py-2.5 sm:px-4">
-          {isAdmin && projects.length > 0 ? (
+          {(isAdmin || (!task.project_id && task.created_by === userId)) &&
+          projects.length > 0 ? (
             <select
               value={projectId ?? ""}
-              onChange={(e) => setProjectId(e.target.value)}
+              onChange={(e) => setProjectId(e.target.value || null)}
               aria-label="Projekt karty"
               title="Přesunout kartu do jiného projektu"
               className="input max-w-[65%] px-2 py-1 text-sm font-medium"
             >
+              <option value="">Bez projektu</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -636,7 +660,15 @@ export default function CardModal({
             </select>
           ) : (
             <span className="chip max-w-[65%] truncate px-2 py-1 text-sm">
-              {projects.find((p) => p.id === projectId)?.name ?? "Projekt"}
+              {projects.find((p) => p.id === projectId)?.name ?? "Bez projektu"}
+            </span>
+          )}
+          {isPrivate && (
+            <span
+              className="rounded-full bg-black/5 px-2 py-0.5 text-xs text-ink-soft"
+              title="Skrytý úkol — vidíš ho jen ty."
+            >
+              🔒 skrytý
             </span>
           )}
           <span className="flex-1" />
@@ -718,7 +750,9 @@ export default function CardModal({
           })}
         </div>
 
-        {/* follow-up: úkol čeká na dodání členem či externím kontaktem */}
+        {/* follow-up: úkol čeká na dodání členem či externím kontaktem;
+            nastavují jen delegátoři (admin / can_delegate), chip vidí všichni */}
+        {(canDelegate || followup) && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-xs text-ink-soft/70">Čekám na:</span>
           {followup ? (
@@ -793,6 +827,7 @@ export default function CardModal({
             </select>
           )}
         </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -833,6 +868,20 @@ export default function CardModal({
           >
             ▶ Spustit timer
           </button>
+          {canTogglePrivate && (
+            <label
+              className="flex cursor-pointer items-center gap-1.5 text-sm text-ink-soft"
+              title="Skrytý úkol vidíš jen ty — nikdo jiný, ani admin. Cizí řešitelé se při skrytí odeberou."
+            >
+              <input
+                type="checkbox"
+                checked={isPrivate}
+                onChange={(e) => setIsPrivate(e.target.checked)}
+                className="h-4 w-4"
+              />
+              🔒 Skrytý
+            </label>
+          )}
         </div>
         {recurrence && (
           <p className="text-xs text-ink-soft/70">

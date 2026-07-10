@@ -53,13 +53,23 @@ export function buildNavSections(
   wsId: string,
   isAdmin: boolean,
   isSuperAdmin: boolean,
+  canDelegate = false,
 ): NavSection[] {
   return [
     {
       title: "Sledování",
       items: [
         { href: `/w/${wsId}/my`, label: "Moje úkoly", icon: "user" },
-        { href: `/w/${wsId}/delegated`, label: "Delegované", icon: "hourglass" },
+        // Delegované jen pro odemknuté delegátory (admin / can_delegate)
+        ...(canDelegate
+          ? [
+              {
+                href: `/w/${wsId}/delegated`,
+                label: "Delegované",
+                icon: "hourglass" as const,
+              },
+            ]
+          : []),
         { href: `/w/${wsId}`, label: "Projekty", icon: "board" },
         { href: `/w/${wsId}/tasks`, label: "Úkoly", icon: "check" },
         { href: `/w/${wsId}/time`, label: "Report", icon: "clock" },

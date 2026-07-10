@@ -24,6 +24,10 @@ export type Membership = {
   role: Role;
   /** per-firma notifikační e-mail; prázdný = účetní e-mail. Nastavuje admin. */
   notify_email?: string;
+  /** odemknutá delegace („Čekám na", Delegované); adminům dána vždy. Nastavuje admin. */
+  can_delegate?: boolean;
+  /** odemknuté skryté úkoly (is_private); adminům dáno vždy. Nastavuje admin. */
+  can_hide?: boolean;
   workspaces?: Workspace;
   profiles?: Profile;
 };
@@ -49,7 +53,8 @@ export type Recurrence = "daily" | "weekdays" | "weekly" | "monthly" | "yearly";
 export type Task = {
   id: string;
   workspace_id: string;
-  project_id: string;
+  /** null = soukromý úkol bez projektu (vidí ho autor + řešitelé + admin) */
+  project_id: string | null;
   column_id: string | null;
   position: number;
   title: string;
@@ -63,6 +68,8 @@ export type Task = {
   priority: number;
   parent_id: string | null;
   recurrence: Recurrence | null;
+  /** skrytý úkol — vidí ho jen autor (ani admin ne) */
+  is_private?: boolean;
   projects?: { name: string; position?: number };
   board_columns?: { name: string } | null;
 };

@@ -13,9 +13,13 @@ const NewTaskDialog = dynamic(() => import("@/components/NewTaskDialog"), {
 export default function NewTaskFab({
   wsId,
   userId,
+  canDelegate = false,
+  canHide = false,
 }: {
   wsId: string;
   userId: string;
+  canDelegate?: boolean;
+  canHide?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -46,6 +50,8 @@ export default function NewTaskFab({
         <NewTaskDialog
           wsId={wsId}
           userId={userId}
+          canDelegate={canDelegate}
+          canHide={canHide}
           onClose={() => setOpen(false)}
           onCreated={() => {
             setOpen(false);

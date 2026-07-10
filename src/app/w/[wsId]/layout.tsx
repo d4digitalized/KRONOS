@@ -26,7 +26,7 @@ export default async function WorkspaceLayout({
       supabase.from("workspaces").select("id, name").eq("id", wsId).maybeSingle(),
       supabase
         .from("workspace_members")
-        .select("workspace_id, role, workspaces(id, name)")
+        .select("*, workspaces(id, name)")
         .eq("user_id", user.id),
     ]);
 
@@ -35,6 +35,9 @@ export default async function WorkspaceLayout({
   const membership = memberships?.find((m) => m.workspace_id === wsId);
   const isSuperAdmin = profile?.is_super_admin ?? false;
   const isAdmin = isSuperAdmin || membership?.role === "admin";
+  // funkce navíc: adminům vždy, členům dle flagů odemčených adminem
+  const canDelegate = isAdmin || !!membership?.can_delegate;
+  const canHide = isAdmin || !!membership?.can_hide;
 
   const workspaces: Workspace[] = (memberships ?? [])
     .map((m) => m.workspaces as unknown as Workspace)
@@ -48,6 +51,7 @@ export default async function WorkspaceLayout({
         workspaces={workspaces}
         isAdmin={isAdmin}
         isSuperAdmin={isSuperAdmin}
+        canDelegate={canDelegate}
         userName={profile?.full_name || profile?.email || ""}
         userProfile={profile}
       />
@@ -61,10 +65,16 @@ export default async function WorkspaceLayout({
         workspaces={workspaces}
         isAdmin={isAdmin}
         isSuperAdmin={isSuperAdmin}
+        canDelegate={canDelegate}
         userName={profile?.full_name || profile?.email || ""}
         userProfile={profile}
       />
-      <NewTaskFab wsId={wsId} userId={user.id} />
+      <NewTaskFab
+        wsId={wsId}
+        userId={user.id}
+        canDelegate={canDelegate}
+        canHide={canHide}
+      />
     </div>
   );
 }

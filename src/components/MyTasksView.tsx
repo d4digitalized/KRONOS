@@ -80,7 +80,7 @@ export default function MyTasksView({
       supabase
         .from("workspace_members")
         .select(
-          "user_id, role, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
+          "*, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
         )
         .eq("workspace_id", wsId),
       // úkoly, kde jsem nastavil follow-up, žijí na stránce Delegované
@@ -193,6 +193,14 @@ export default function MyTasksView({
                             title="Opakovaný úkol"
                           >
                             ↻
+                          </span>
+                        )}
+                        {task.is_private && (
+                          <span
+                            className="ml-1 text-xs text-ink-soft/50"
+                            title="Skrytý úkol — vidíš ho jen ty"
+                          >
+                            🔒
                           </span>
                         )}
                       </p>

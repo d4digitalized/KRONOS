@@ -61,6 +61,14 @@ function BoardCard({
             ↻
           </span>
         )}
+        {task.is_private && (
+          <span
+            className="ml-1 text-xs text-ink-soft/50"
+            title="Skrytý úkol — vidíš ho jen ty"
+          >
+            🔒
+          </span>
+        )}
       </p>
       {waitingOn && !isDone && (
         <span

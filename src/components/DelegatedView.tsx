@@ -52,7 +52,7 @@ export default function DelegatedView({
       supabase
         .from("workspace_members")
         .select(
-          "user_id, role, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
+          "*, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
         )
         .eq("workspace_id", wsId),
     ]);

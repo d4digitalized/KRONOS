@@ -23,6 +23,7 @@ export default function MobileNav({
   workspaces,
   isAdmin,
   isSuperAdmin,
+  canDelegate = false,
   userName,
   userProfile,
 }: {
@@ -30,6 +31,7 @@ export default function MobileNav({
   workspaces: Workspace[];
   isAdmin: boolean;
   isSuperAdmin: boolean;
+  canDelegate?: boolean;
   userName: string;
   userProfile?: Profile | null;
 }) {
@@ -39,7 +41,7 @@ export default function MobileNav({
   const [shown, setShown] = useState(false); // stav pro animaci
 
   const primary = primaryNavItems(wsId);
-  const sections = buildNavSections(wsId, isAdmin, isSuperAdmin);
+  const sections = buildNavSections(wsId, isAdmin, isSuperAdmin, canDelegate);
   const isActive = (href: string) => isNavActive(pathname, href, wsId);
 
   function openDrawer() {

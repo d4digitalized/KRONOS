@@ -21,6 +21,7 @@ export default function Sidebar({
   workspaces,
   isAdmin,
   isSuperAdmin,
+  canDelegate = false,
   userName,
   userProfile,
 }: {
@@ -28,6 +29,7 @@ export default function Sidebar({
   workspaces: Workspace[];
   isAdmin: boolean;
   isSuperAdmin: boolean;
+  canDelegate?: boolean;
   userName: string;
   userProfile?: Profile | null;
 }) {
@@ -54,7 +56,7 @@ export default function Sidebar({
     router.refresh();
   }
 
-  const sections = buildNavSections(wsId, isAdmin, isSuperAdmin);
+  const sections = buildNavSections(wsId, isAdmin, isSuperAdmin, canDelegate);
   const isActive = (href: string) => isNavActive(pathname, href, wsId);
 
   return (

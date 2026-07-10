@@ -1,6 +1,31 @@
 # Toggled — Delegované úkoly (follow-up / „čekám na")
 
-*Brainstorming 2026-07-10.*
+*Brainstorming 2026-07-10; 2. kolo téhož dne: princip dvou vazeb, úkoly bez
+projektu, skryté úkoly, odemykání per člen.*
+
+## Princip (2. kolo): úkol má dvě nezávislé vazby na lidi
+
+1. **Řešitel** — „kdo na tom pracuje". Aktivní: úkol mu přistane v Moje
+   úkoly, dostane notifikaci.
+2. **Čekám na** — „kdo mi dluží výsledek". Pasivní: dotyčný se nic nedozví,
+   úkol se drží zadavateli na stránce Delegované.
+
+Ticho není funkce — je to výchozí stav vazby 2. Kombinace vazeb pokrývá vše:
+tiché hlídání (jen 2), zadání s hlídáním (1+2), běžný úkol (jen 1). V dialogu
+Nový úkol tomu odpovídá pole „Čekám na" (input s našeptávačem: členové →
+kontakty → založit nový) + u členů zaškrtávátko „zadat mu to i jako úkol";
+z druhé strany u cizího řešitele přepínač „Follow-up" (čekám na = řešitel).
+
+**Úkoly bez projektu:** projekt v Novém úkolu nepovinný; úkol bez projektu
+vidí jen autor + řešitelé (+ admin), není na žádné nástěnce, projekt jde
+doplnit později v kartě.
+
+**Skryté úkoly (`tasks.is_private`):** vidí je JEN autor — ani admin. Nesmí
+mít cizí řešitele; tiché „Čekám na" na nich funguje.
+
+**Odemykání per člen (`workspace_members.can_delegate` / `can_hide`):**
+admin na Členech odemyká delegaci (pole Čekám na, sekce na kartě, stránka
+Delegované) a skryté úkoly; admini mají obojí vždy.
 
 ## Pitch
 

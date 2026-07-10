@@ -6,6 +6,7 @@ import {
   inviteMember,
   listAddablePortalUsers,
   listAllUsers,
+  setMemberFlag,
   setMemberNotifyEmail,
   type AppUser,
 } from "@/app/actions/members";
@@ -69,7 +70,7 @@ export default function MembersView({
       supabase
         .from("workspace_members")
         .select(
-          "user_id, role, notify_email, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
+          "*, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
         )
         .eq("workspace_id", wsId)
         .order("role"),
@@ -489,6 +490,32 @@ export default function MembersView({
                   isAdminMember={member.role === "admin"}
                   members={members}
                 />
+                {member.role === "admin" ? (
+                  <p className="border-t border-line/50 bg-black/[.015] px-3 py-2 text-xs text-ink-soft/70">
+                    Admin může delegovat i skrývat úkoly vždy.
+                  </p>
+                ) : (
+                  <>
+                    <MemberFlagToggle
+                      wsId={wsId}
+                      userId={member.user_id}
+                      flag="can_delegate"
+                      title="Může delegovat"
+                      hint={'Odemkne „Čekám na" v úkolech a stránku Delegované.'}
+                      initial={member.can_delegate ?? false}
+                      onSaved={load}
+                    />
+                    <MemberFlagToggle
+                      wsId={wsId}
+                      userId={member.user_id}
+                      flag="can_hide"
+                      title="Skryté úkoly"
+                      hint="Odemkne zakládání úkolů, které vidí jen jejich autor."
+                      initial={member.can_hide ?? false}
+                      onSaved={load}
+                    />
+                  </>
+                )}
               </>
             )}
           </div>
@@ -557,6 +584,59 @@ function NotifyEmailEditor({
       >
         {saving ? "Ukládám…" : "Uložit"}
       </button>
+    </div>
+  );
+}
+
+/** Odemknutí funkce navíc pro člena (delegace / skryté úkoly).
+    Admini mají obě vždy, u nich se přepínače nezobrazují. */
+function MemberFlagToggle({
+  wsId,
+  userId,
+  flag,
+  title,
+  hint,
+  initial,
+  onSaved,
+}: {
+  wsId: string;
+  userId: string;
+  flag: "can_delegate" | "can_hide";
+  title: string;
+  hint: string;
+  initial: boolean;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  async function toggle(next: boolean) {
+    setSaving(true);
+    const res = await setMemberFlag(wsId, userId, flag, next);
+    setSaving(false);
+    if (res.error) {
+      toast(res.error, "error");
+      return;
+    }
+    toast(next ? `${title}: zapnuto.` : `${title}: vypnuto.`);
+    onSaved();
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-line/50 bg-black/[.015] px-3 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-xs text-ink-soft/70">{hint}</p>
+      </div>
+      <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={initial}
+          disabled={saving}
+          onChange={(e) => toggle(e.target.checked)}
+          className="h-4 w-4"
+        />
+        {initial ? "zapnuto" : "vypnuto"}
+      </label>
     </div>
   );
 }
