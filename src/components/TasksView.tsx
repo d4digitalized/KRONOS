@@ -3,21 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { createClient } from "@/lib/supabase/client";
-import { posBetween } from "@/lib/position";
 import { toast } from "@/lib/toast";
 import { pingNotifyEmails } from "@/lib/notify";
 import { PRIORITIES } from "@/lib/priority";
 import { cacheGet, cacheSet } from "@/lib/viewCache";
 import { TASKS_CHANGED_EVENT } from "@/lib/tasksChanged";
-import ProjectPicker, { ProjectDot } from "@/components/ProjectPicker";
-import PersonPicker, {
-  isMemberRef,
-  personRefId,
-  type PersonRef,
-} from "@/components/PersonPicker";
+import { ProjectDot } from "@/components/ProjectPicker";
 import Avatar from "@/components/Avatar";
 import TaskRow, { TaskGroup } from "@/components/TaskRow";
-import type { Contact, Membership, Project, Task } from "@/lib/types";
+import type { Membership, Project, Task } from "@/lib/types";
 
 // Modal karty se dogeneruje až při otevření (mimo základní bundle routy).
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
@@ -51,12 +45,6 @@ export default function TasksView({
   const [openTask, setOpenTask] = useState<Task | null>(null);
   // můj tým: já + lidé, kterým smím zadávat (assign_grants); admin vidí všechny
   const [grants, setGrants] = useState<Set<string>>(new Set());
-  // zadání nového úkolu (admin)
-  const [addTitle, setAddTitle] = useState("");
-  const [addProject, setAddProject] = useState("");
-  const [addAssignee, setAddAssignee] = useState<PersonRef | null>(null);
-  const [addProjMembers, setAddProjMembers] = useState<Set<string>>(new Set());
-  const [contacts, setContacts] = useState<Contact[]>([]);
   // filtry
   const [fText, setFText] = useState("");
   const [fProject, setFProject] = useState("");
@@ -65,7 +53,7 @@ export default function TasksView({
   const [fStatus, setFStatus] = useState<Status>("active");
 
   const load = useCallback(async () => {
-    const [taskRes, projRes, memRes, taRes, grantRes, contactRes] = await Promise.all([
+    const [taskRes, projRes, memRes, taRes, grantRes] = await Promise.all([
       supabase
         .from("tasks")
         .select("*, projects(name, position), board_columns(name)")
@@ -93,7 +81,6 @@ export default function TasksView({
         .select("target_id")
         .eq("workspace_id", wsId)
         .eq("user_id", userId),
-      supabase.from("contacts").select("*").eq("workspace_id", wsId).order("name"),
     ]);
     const nextTasks = (taskRes.data as Task[]) ?? [];
     const nextProjects = (projRes.data as Project[]) ?? [];
@@ -107,7 +94,6 @@ export default function TasksView({
     setMembers(nextMembers);
     setAssignees(byTask);
     setGrants(new Set((grantRes.data ?? []).map((r) => r.target_id as string)));
-    setContacts((contactRes.data as Contact[]) ?? []);
     cacheSet(cacheKey, {
       tasks: nextTasks,
       projects: nextProjects,
@@ -124,114 +110,6 @@ export default function TasksView({
     window.addEventListener(TASKS_CHANGED_EVENT, onChanged);
     return () => window.removeEventListener(TASKS_CHANGED_EVENT, onChanged);
   }, [load]);
-
-  // členským řešitelem smí být jen člen zvoleného projektu (nebo admin ws);
-  // bez projektu kdokoli, duchové vždy
-  useEffect(() => {
-    if (!addProject) {
-      setAddProjMembers(new Set());
-      return;
-    }
-    supabase
-      .from("project_members")
-      .select("user_id")
-      .eq("project_id", addProject)
-      .then(({ data }) => {
-        const ids = new Set((data ?? []).map((r) => r.user_id as string));
-        setAddProjMembers(ids);
-        setAddAssignee((prev) => {
-          if (!prev || !isMemberRef(prev)) return prev;
-          const id = personRefId(prev);
-          const stillOk =
-            ids.has(id) || members.find((m) => m.user_id === id)?.role === "admin";
-          return stillOk ? prev : null;
-        });
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addProject]);
-
-  const addAssignable = !addProject
-    ? members
-    : members.filter((m) => addProjMembers.has(m.user_id) || m.role === "admin");
-
-  /** Nový duch z „➕ založit" v PersonPickeru — jen doplnit do seznamu. */
-  function addContact(contact: Contact) {
-    setContacts((prev) =>
-      [...prev, contact].sort((a, b) => a.name.localeCompare(b.name, "cs"))
-    );
-  }
-
-  /** „➕ založit projekt" z pickeru rychlého zadání (jen admin — RLS). */
-  async function createProjectAndPick(name: string) {
-    const { data, error } = await supabase
-      .from("projects")
-      .insert({ workspace_id: wsId, name })
-      .select("id")
-      .single();
-    if (error || !data) {
-      toast("Projekt se nepodařilo založit.", "error");
-      return;
-    }
-    setAddProject(data.id as string);
-    load();
-  }
-
-  async function addTask(e: React.FormEvent) {
-    e.preventDefault();
-    const title = addTitle.trim();
-    if (!title) return;
-    // projektový úkol jde na konec prvního sloupce nástěnky projektu;
-    // bez projektu žije mimo nástěnky (stejná logika jako Nový úkol / Inbox)
-    let columnId: string | null = null;
-    let position = 0;
-    if (addProject) {
-      const { data: col } = await supabase
-        .from("board_columns")
-        .select("id")
-        .eq("project_id", addProject)
-        .order("position")
-        .limit(1)
-        .maybeSingle();
-      const { data: last } = await supabase
-        .from("tasks")
-        .select("position")
-        .eq("project_id", addProject)
-        .order("position", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      columnId = col?.id ?? null;
-      position = posBetween(last?.position, undefined);
-    }
-    const { data: created, error } = await supabase
-      .from("tasks")
-      .insert({
-        workspace_id: wsId,
-        project_id: addProject || null,
-        column_id: columnId,
-        title,
-        position,
-      })
-      .select("id")
-      .single();
-    if (error || !created) {
-      toast("Úkol se nepodařilo přidat.", "error");
-      return;
-    }
-    if (addAssignee) {
-      const id = personRefId(addAssignee);
-      const { error: aError } = isMemberRef(addAssignee)
-        ? await supabase
-            .from("task_assignees")
-            .insert({ task_id: created.id, user_id: id })
-        : await supabase
-            .from("task_contact_assignees")
-            .insert({ task_id: created.id, contact_id: id });
-      if (aError) toast("Řešitele se nepodařilo přiřadit.", "error");
-      else if (isMemberRef(addAssignee)) pingNotifyEmails();
-    }
-    setAddTitle("");
-    load();
-  }
 
   async function toggleDone(task: Task) {
     const { error } = await supabase
@@ -359,41 +237,6 @@ export default function TasksView({
           <option value="all">Vše</option>
         </select>
       </div>
-
-      {isAdmin && (
-        <form onSubmit={addTask} className="flex flex-wrap items-center gap-2 panel py-2 pl-4 pr-2">
-          <input
-            type="text"
-            placeholder="Nový úkol…"
-            value={addTitle}
-            onChange={(e) => setAddTitle(e.target.value)}
-            className="input-quiet -ml-2 min-w-40 flex-1 px-2 py-1.5 text-sm"
-          />
-          <ProjectPicker
-            projects={projects}
-            value={addProject || null}
-            onChange={(id) => setAddProject(id ?? "")}
-            align="left"
-            alwaysSearch
-            onCreate={createProjectAndPick}
-          />
-          <PersonPicker
-            wsId={wsId}
-            userId={userId}
-            members={addAssignable}
-            contacts={contacts}
-            value={addAssignee}
-            onChange={setAddAssignee}
-            onContactCreated={addContact}
-            noneLabel="Bez řešitele"
-            placeholder="Řešitel"
-            ariaLabel="Řešitel"
-          />
-          <button type="submit" className="btn-primary">
-            Přidat úkol
-          </button>
-        </form>
-      )}
 
       {visible.length === 0 ? (
         <p className="panel p-6 text-center text-sm text-ink-soft/70">
