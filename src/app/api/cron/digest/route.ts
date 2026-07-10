@@ -55,7 +55,7 @@ export async function GET(req: Request) {
     supabase.from("notification_prefs").select("user_id, daily_digest").in("user_id", userIds),
     supabase
       .from("workspace_members")
-      .select("user_id, workspace_id, notify_email")
+      .select("user_id, workspace_id, notify_email, notify_enabled")
       .in("user_id", userIds),
   ]);
   const emailById = new Map(
@@ -66,9 +66,13 @@ export async function GET(req: Request) {
   );
   // per-firma notifikační e-mail (přebíjí účetní), klíč `user:workspace`
   const notifyOverride = new Map<string, string>();
+  // členové s notifikacemi vypnutými adminem, klíč `user:workspace`
+  const notifyOff = new Set<string>();
   for (const m of membersRes.data ?? []) {
     if (m.notify_email)
       notifyOverride.set(`${m.user_id}:${m.workspace_id}`, m.notify_email as string);
+    if (m.notify_enabled === false)
+      notifyOff.add(`${m.user_id}:${m.workspace_id}`);
   }
 
   let sent = 0;
@@ -80,6 +84,7 @@ export async function GET(req: Request) {
     // e-mail (jeden souhrn jako dřív), s override se rozdělí na správné adresy
     const byAddr = new Map<string, DigestTask[]>();
     for (const t of userTasks) {
+      if (notifyOff.has(`${userId}:${t.workspace_id}`)) continue; // vypnul admin
       const addr = notifyOverride.get(`${userId}:${t.workspace_id}`) ?? account;
       if (!addr) continue;
       byAddr.set(addr, [...(byAddr.get(addr) ?? []), t]);

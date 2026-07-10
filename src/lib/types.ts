@@ -24,6 +24,8 @@ export type Membership = {
   role: Role;
   /** per-firma notifikační e-mail; prázdný = účetní e-mail. Nastavuje admin. */
   notify_email?: string;
+  /** e-mailové notifikace z této firmy; vypíná/zapíná admin. */
+  notify_enabled?: boolean;
   /** odemknutá delegace („Čekám na", Delegované); adminům dána vždy. Nastavuje admin. */
   can_delegate?: boolean;
   /** odemknuté skryté úkoly (is_private); adminům dáno vždy. Nastavuje admin. */

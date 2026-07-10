@@ -484,6 +484,15 @@ export default function MembersView({
                   accountEmail={member.profiles?.email ?? ""}
                   onSaved={load}
                 />
+                <MemberFlagToggle
+                  wsId={wsId}
+                  userId={member.user_id}
+                  flag="notify_enabled"
+                  title="E-mailové notifikace"
+                  hint="Vypnuté = z této firmy nechodí žádné e-maily (přiřazení, komentáře, zmínky, denní přehled). Zvoneček v aplikaci zůstává."
+                  initial={member.notify_enabled ?? true}
+                  onSaved={load}
+                />
                 <AssignGrantsEditor
                   wsId={wsId}
                   userId={member.user_id}
@@ -588,8 +597,8 @@ function NotifyEmailEditor({
   );
 }
 
-/** Odemknutí funkce navíc pro člena (delegace / skryté úkoly).
-    Admini mají obě vždy, u nich se přepínače nezobrazují. */
+/** Per-firma flag člena: odemknutí funkce navíc (delegace / skryté úkoly —
+    admini je mají vždy, u nich se nezobrazují) nebo e-mailové notifikace. */
 function MemberFlagToggle({
   wsId,
   userId,
@@ -601,7 +610,7 @@ function MemberFlagToggle({
 }: {
   wsId: string;
   userId: string;
-  flag: "can_delegate" | "can_hide";
+  flag: "can_delegate" | "can_hide" | "notify_enabled";
   title: string;
   hint: string;
   initial: boolean;

@@ -78,7 +78,7 @@ export async function drainNotifications(): Promise<{
     supabase.from("notification_prefs").select("*").in("user_id", userIds),
     supabase
       .from("workspace_members")
-      .select("user_id, workspace_id, notify_email")
+      .select("user_id, workspace_id, notify_email, notify_enabled")
       .in("user_id", userIds),
   ]);
   const emailById = new Map(
@@ -89,9 +89,13 @@ export async function drainNotifications(): Promise<{
   );
   // per-firma notifikační e-mail (přebíjí účetní), klíč `user:workspace`
   const notifyOverride = new Map<string, string>();
+  // členové s notifikacemi vypnutými adminem, klíč `user:workspace`
+  const notifyOff = new Set<string>();
   for (const m of membersRes.data ?? []) {
     if (m.notify_email)
       notifyOverride.set(`${m.user_id}:${m.workspace_id}`, m.notify_email as string);
+    if (m.notify_enabled === false)
+      notifyOff.add(`${m.user_id}:${m.workspace_id}`);
   }
 
   let sent = 0;
@@ -118,6 +122,7 @@ export async function drainNotifications(): Promise<{
           ? (prefs?.on_mention ?? true)
           : (prefs?.on_comment ?? true);
     if (!email || !wants) continue; // vyřízeno bez e-mailu (preference)
+    if (notifyOff.has(`${n.user_id}:${n.workspace_id}`)) continue; // vypnul admin
 
     try {
       const { subject, html } = compose(n);

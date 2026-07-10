@@ -171,13 +171,13 @@ export async function setMemberNotifyEmail(
   return { ok: true };
 }
 
-/** Odemkne/zamkne členovi funkci navíc: delegaci úkolů („Čekám na",
-    Delegované) nebo skryté úkoly. Adminům je aplikace dává vždy bez ohledu
-    na flag. Jen admin workspace. */
+/** Přepne členovi per-firma flag: delegaci úkolů („Čekám na", Delegované),
+    skryté úkoly (adminům je aplikace dává vždy bez ohledu na flag), nebo
+    e-mailové notifikace (notify_enabled). Jen admin workspace. */
 export async function setMemberFlag(
   wsId: string,
   userId: string,
-  flag: "can_delegate" | "can_hide",
+  flag: "can_delegate" | "can_hide" | "notify_enabled",
   value: boolean
 ): Promise<{ ok?: true; error?: string }> {
   const supabase = await createClient();
