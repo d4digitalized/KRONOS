@@ -25,6 +25,7 @@ export default function MobileNav({
   isAdmin,
   isSuperAdmin,
   canDelegate = false,
+  canTaskforce = false,
   userId,
   userName,
   userProfile,
@@ -34,6 +35,7 @@ export default function MobileNav({
   isAdmin: boolean;
   isSuperAdmin: boolean;
   canDelegate?: boolean;
+  canTaskforce?: boolean;
   userId?: string;
   userName: string;
   userProfile?: Profile | null;
@@ -43,8 +45,14 @@ export default function MobileNav({
   const [mounted, setMounted] = useState(false); // drawer v DOM
   const [shown, setShown] = useState(false); // stav pro animaci
 
-  const primary = primaryNavItems(wsId);
-  const sections = buildNavSections(wsId, isAdmin, isSuperAdmin, canDelegate);
+  const primary = primaryNavItems(wsId, canTaskforce);
+  const sections = buildNavSections(
+    wsId,
+    isAdmin,
+    isSuperAdmin,
+    canDelegate,
+    canTaskforce
+  );
   const isActive = (href: string) => isNavActive(pathname, href, wsId);
 
   function openDrawer() {

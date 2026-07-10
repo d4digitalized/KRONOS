@@ -48,6 +48,8 @@ export default function TasksView({
   );
   const [loading, setLoading] = useState(!cached);
   const [openTask, setOpenTask] = useState<Task | null>(null);
+  // můj tým: já + lidé, kterým smím zadávat (assign_grants); admin vidí všechny
+  const [grants, setGrants] = useState<Set<string>>(new Set());
   // zadání nového úkolu (admin)
   const [addTitle, setAddTitle] = useState("");
   const [addProject, setAddProject] = useState("");
@@ -61,7 +63,7 @@ export default function TasksView({
   const [fStatus, setFStatus] = useState<Status>("active");
 
   const load = useCallback(async () => {
-    const [taskRes, projRes, memRes, taRes] = await Promise.all([
+    const [taskRes, projRes, memRes, taRes, grantRes] = await Promise.all([
       supabase
         .from("tasks")
         .select("*, projects(name, position), board_columns(name)")
@@ -84,6 +86,11 @@ export default function TasksView({
         .from("task_assignees")
         .select("task_id, user_id, tasks!inner(workspace_id)")
         .eq("tasks.workspace_id", wsId),
+      supabase
+        .from("assign_grants")
+        .select("target_id")
+        .eq("workspace_id", wsId)
+        .eq("user_id", userId),
     ]);
     const nextTasks = (taskRes.data as Task[]) ?? [];
     const nextProjects = (projRes.data as Project[]) ?? [];
@@ -96,6 +103,7 @@ export default function TasksView({
     setProjects(nextProjects);
     setMembers(nextMembers);
     setAssignees(byTask);
+    setGrants(new Set((grantRes.data ?? []).map((r) => r.target_id as string)));
     cacheSet(cacheKey, {
       tasks: nextTasks,
       projects: nextProjects,
@@ -204,8 +212,15 @@ export default function TasksView({
   if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
 
   const q = fText.trim().toLowerCase();
+  // tým = já + lidé s grantem; admin vidí všechny
+  const team = new Set([userId, ...grants]);
+  const teamMembers = isAdmin
+    ? members
+    : members.filter((m) => team.has(m.user_id));
   const visible = tasks
-    .filter((t) => (isAdmin ? true : (assignees[t.id] ?? []).includes(userId)))
+    .filter((t) =>
+      isAdmin ? true : (assignees[t.id] ?? []).some((id) => team.has(id))
+    )
     .filter((t) =>
       fStatus === "all" ? true : fStatus === "done" ? !!t.completed_at : !t.completed_at
     )
@@ -231,10 +246,12 @@ export default function TasksView({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="font-display text-lg font-semibold">Úkoly</h1>
-        {!isAdmin && (
-          <span className="text-xs text-ink-soft/70">jen úkoly, kde jsi řešitel</span>
-        )}
+        <h1 className="font-display text-lg font-semibold">Task force</h1>
+        <span className="text-xs text-ink-soft/70">
+          {isAdmin
+            ? "úkoly všech ve firmě"
+            : "úkoly tvého týmu — ty + lidé, kterým můžeš zadávat"}
+        </span>
         <span className="flex-1" />
         <input
           type="search"
@@ -269,7 +286,7 @@ export default function TasksView({
             </option>
           ))}
         </select>
-        {isAdmin && (
+        {teamMembers.length > 1 && (
           <select
             value={fAssignee}
             onChange={(e) => setFAssignee(e.target.value)}
@@ -277,7 +294,7 @@ export default function TasksView({
             className="input px-2 py-1 text-sm"
           >
             <option value="">Řešitel: všichni</option>
-            {members.map((m) => (
+            {teamMembers.map((m) => (
               <option key={m.user_id} value={m.user_id}>
                 {m.profiles?.full_name || m.profiles?.email}
               </option>

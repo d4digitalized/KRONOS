@@ -501,7 +501,7 @@ export default function MembersView({
                       userId={member.user_id}
                       flag="can_delegate"
                       title="Může delegovat"
-                      hint={'Odemkne „Čekám na" v úkolech a stránku Delegované.'}
+                      hint={'Odemkne follow-upy a stránku „Čekám na".'}
                       initial={member.can_delegate ?? false}
                       onSaved={load}
                     />

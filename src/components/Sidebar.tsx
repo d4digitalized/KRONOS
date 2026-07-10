@@ -23,6 +23,7 @@ export default function Sidebar({
   isAdmin,
   isSuperAdmin,
   canDelegate = false,
+  canTaskforce = false,
   userId,
   userName,
   userProfile,
@@ -32,6 +33,7 @@ export default function Sidebar({
   isAdmin: boolean;
   isSuperAdmin: boolean;
   canDelegate?: boolean;
+  canTaskforce?: boolean;
   userId?: string;
   userName: string;
   userProfile?: Profile | null;
@@ -59,7 +61,13 @@ export default function Sidebar({
     router.refresh();
   }
 
-  const sections = buildNavSections(wsId, isAdmin, isSuperAdmin, canDelegate);
+  const sections = buildNavSections(
+    wsId,
+    isAdmin,
+    isSuperAdmin,
+    canDelegate,
+    canTaskforce
+  );
   const isActive = (href: string) => isNavActive(pathname, href, wsId);
 
   return (

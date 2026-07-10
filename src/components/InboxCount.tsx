@@ -20,7 +20,7 @@ export default function InboxCount({
     const [tRes, fuRes] = await Promise.all([
       supabase
         .from("tasks")
-        .select("id, task_assignees(user_id)")
+        .select("id, task_assignees(user_id), task_contact_assignees(contact_id)")
         .eq("workspace_id", wsId)
         .eq("created_by", userId)
         .is("project_id", null)
@@ -33,10 +33,18 @@ export default function InboxCount({
         .eq("created_by", userId),
     ]);
     const waiting = new Set((fuRes.data ?? []).map((r) => r.task_id as string));
-    const rows = (tRes.data ?? []) as { id: string; task_assignees: unknown[] }[];
+    const rows = (tRes.data ?? []) as {
+      id: string;
+      task_assignees: unknown[];
+      task_contact_assignees: unknown[];
+    }[];
     setCount(
-      rows.filter((t) => (t.task_assignees ?? []).length === 0 && !waiting.has(t.id))
-        .length
+      rows.filter(
+        (t) =>
+          (t.task_assignees ?? []).length === 0 &&
+          (t.task_contact_assignees ?? []).length === 0 &&
+          !waiting.has(t.id)
+      ).length
     );
   }, [supabase, wsId, userId]);
 

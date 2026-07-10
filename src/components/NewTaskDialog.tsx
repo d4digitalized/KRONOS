@@ -41,7 +41,8 @@ export default function NewTaskDialog({
   const supabase = createClient();
   const [title, setTitle] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [assignee, setAssignee] = useState<string | null>(userId);
+  // řešitel: "u:<userId>" (člen) nebo "c:<contactId>" (duch); null = bez řešitele
+  const [assignee, setAssignee] = useState<string | null>(`u:${userId}`);
   const [dueDate, setDueDate] = useState("");
   const [priority, setPriority] = useState(4);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -85,9 +86,7 @@ export default function NewTaskDialog({
         .select("target_id")
         .eq("workspace_id", wsId)
         .eq("user_id", userId),
-      canDelegate
-        ? supabase.from("contacts").select("*").eq("workspace_id", wsId).order("name")
-        : Promise.resolve({ data: [] as Contact[] }),
+      supabase.from("contacts").select("*").eq("workspace_id", wsId).order("name"),
     ]).then(([projRes, memRes, grantRes, contactRes]) => {
       const list = (projRes.data as Project[]) ?? [];
       setProjects(list);
@@ -132,10 +131,12 @@ export default function NewTaskDialog({
             m.role === "admin"
         );
   const assignable = candidates.filter((m) => canManage(m.user_id));
-  const canAssignOthers = assignable.some((m) => m.user_id !== userId);
-  const meName = me?.profiles?.full_name || me?.profiles?.email || "já";
   const memberName = (m: Membership) =>
     m.profiles?.full_name || m.profiles?.email || "?";
+
+  // rozklad řešitele na člena/ducha
+  const assigneeMember = assignee?.startsWith("u:") ? assignee.slice(2) : null;
+  const assigneeGhost = assignee?.startsWith("c:") ? assignee.slice(2) : null;
 
   // ---------------------------------------------------------------- čekám na
 
@@ -156,8 +157,8 @@ export default function NewTaskDialog({
     }
   }
 
-  /** „➕ založit kontakt" z pickeru — založí ho hned a vybere. */
-  async function createContactAndPick(name: string) {
+  /** Založí ducha a přidá ho do lokálního seznamu kontaktů. */
+  async function createContact(name: string): Promise<Contact | null> {
     const { data, error } = await supabase
       .from("contacts")
       .insert({ workspace_id: wsId, name, created_by: userId })
@@ -165,7 +166,7 @@ export default function NewTaskDialog({
       .single();
     if (error || !data) {
       toast("Kontakt se nepodařilo založit.", "error");
-      return;
+      return null;
     }
     const contact = {
       id: data.id as string,
@@ -179,27 +180,36 @@ export default function NewTaskDialog({
     setContacts((prev) =>
       [...prev, contact].sort((a, b) => a.name.localeCompare(b.name, "cs"))
     );
+    return contact;
+  }
+
+  /** „➕ založit kontakt" z pickeru Čekám na — založí ho hned a vybere. */
+  async function createContactAndPick(name: string) {
+    const contact = await createContact(name);
+    if (!contact) return;
     setAssignToo(false);
     setWaitSel({ kind: "c", id: contact.id, name });
   }
 
-  /** Follow-up přepínač u cizího řešitele: čekám na = řešitel. */
+  /** Follow-up přepínač u cizího řešitele (člen i duch): čekám na = řešitel. */
   function toggleFollowUpOnAssignee(on: boolean) {
     if (!on) {
       setWaitSel(null);
       return;
     }
-    const m = members.find((x) => x.user_id === assignee);
-    if (m) setWaitSel({ kind: "u", id: m.user_id, name: memberName(m) });
+    if (assigneeMember) {
+      const m = members.find((x) => x.user_id === assigneeMember);
+      if (m) setWaitSel({ kind: "u", id: m.user_id, name: memberName(m) });
+    } else if (assigneeGhost) {
+      const c = contacts.find((x) => x.id === assigneeGhost);
+      if (c) setWaitSel({ kind: "c", id: c.id, name: c.name });
+    }
   }
 
-  function togglePrivate(on: boolean) {
-    setIsPrivate(on);
-    if (on) {
-      // skrytý úkol nesmí mít cizího řešitele (nikdo jiný ho nevidí)
-      setAssignee(userId);
-      setAssignToo(false);
-    }
+  /** „➕ založit kontakt" z pickeru řešitelů — založí ducha a vybere ho. */
+  async function createGhostAndAssign(name: string) {
+    const contact = await createContact(name);
+    if (contact) setAssignee(`c:${contact.id}`);
   }
 
   // ---------------------------------------------------------------- uložení
@@ -256,13 +266,18 @@ export default function NewTaskDialog({
       return;
     }
 
-    // řešitelé: vybraný + případně čekaný člen („zadat mu to i jako úkol")
-    const effAssignee = isPrivate ? userId : assignee;
-    const assigneeIds = new Set<string>();
-    if (effAssignee) assigneeIds.add(effAssignee);
-    if (!isPrivate && assignToo && waitSel?.kind === "u") assigneeIds.add(waitSel.id);
+    // řešitelé: vybraný + případně čekaný („zadat mu to i jako úkol");
+    // členové → task_assignees (+ notifikace), duchové → task_contact_assignees
+    const memberIds = new Set<string>();
+    const ghostIds = new Set<string>();
+    if (assigneeMember) memberIds.add(assigneeMember);
+    if (assigneeGhost) ghostIds.add(assigneeGhost);
+    if (assignToo && waitSel) {
+      if (waitSel.kind === "u") memberIds.add(waitSel.id);
+      else ghostIds.add(waitSel.id);
+    }
 
-    for (const uid of assigneeIds) {
+    for (const uid of memberIds) {
       // řešitel musí být člen projektu (RLS) — admin nečlena rovnou doplní
       if (projectId && isAdmin && !projectMembers.has(uid)) {
         await supabase
@@ -277,7 +292,14 @@ export default function NewTaskDialog({
         .insert({ task_id: created.id, user_id: uid });
       if (taError) toast("Řešitele se nepodařilo přiřadit.", "error");
     }
-    if (assigneeIds.size > 0) pingNotifyEmails();
+    if (memberIds.size > 0) pingNotifyEmails();
+
+    for (const cid of ghostIds) {
+      const { error: tcaError } = await supabase
+        .from("task_contact_assignees")
+        .insert({ task_id: created.id, contact_id: cid });
+      if (tcaError) toast("Ducha se nepodařilo přiřadit.", "error");
+    }
 
     // follow-up: čekám na člena / kontakt
     if (canDelegate && waitSel) {
@@ -337,30 +359,31 @@ export default function NewTaskDialog({
             onChange={setProjectId}
             align="left"
           />
-          {canAssignOthers && !isPrivate ? (
-            <Picker
-              options={[
-                { id: null, label: "Bez řešitele" },
-                ...assignable.map((m) => ({
-                  id: m.user_id as string | null,
-                  label:
-                    m.user_id === userId
-                      ? `${memberName(m)} (já)`
-                      : memberName(m),
-                })),
-              ]}
-              value={assignee}
-              onChange={setAssignee}
-              placeholder="Řešitel"
-              iconPath={USER_ICON}
-              ariaLabel="Řešitel"
-              align="left"
-            />
-          ) : (
-            <span className="px-1 text-sm text-ink-soft">
-              Řešitel: <span className="text-ink">{meName}</span>
-            </span>
-          )}
+          <Picker
+            options={[
+              { id: null, label: "Bez řešitele" },
+              ...assignable.map((m) => ({
+                id: `u:${m.user_id}` as string | null,
+                label:
+                  m.user_id === userId
+                    ? `${memberName(m)} (já)`
+                    : memberName(m),
+              })),
+              ...contacts.map((c) => ({
+                id: `c:${c.id}` as string | null,
+                label: `👻 ${c.name}`,
+              })),
+            ]}
+            value={assignee}
+            onChange={setAssignee}
+            placeholder="Řešitel"
+            iconPath={USER_ICON}
+            ariaLabel="Řešitel"
+            align="left"
+            alwaysSearch
+            onCreate={createGhostAndAssign}
+            createLabel="založit kontakt"
+          />
         </div>
 
         {/* follow-up: koho dodávku hlídám (nezávislé na řešiteli) */}
@@ -394,23 +417,23 @@ export default function NewTaskDialog({
               />
             </div>
 
-            {/* čekaný člen zatím není řešitel → nabídni zadání */}
-            {!isPrivate &&
-              waitSel?.kind === "u" &&
-              waitSel.id !== assignee && (
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-soft">
-                  <input
-                    type="checkbox"
-                    checked={assignToo}
-                    onChange={(e) => setAssignToo(e.target.checked)}
-                    className="h-3.5 w-3.5"
-                  />
-                  zadat mu to i jako úkol (uvidí ho a dostane upozornění)
-                </label>
-              )}
+            {/* čekaný člověk zatím není řešitel → nabídni zadání */}
+            {waitSel && `${waitSel.kind}:${waitSel.id}` !== assignee && (
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-soft">
+                <input
+                  type="checkbox"
+                  checked={assignToo}
+                  onChange={(e) => setAssignToo(e.target.checked)}
+                  className="h-3.5 w-3.5"
+                />
+                {waitSel.kind === "u"
+                  ? "zadat mu to i jako úkol (uvidí ho a dostane upozornění)"
+                  : "přidat ho i jako řešitele (jen evidence, duch nic nevidí)"}
+              </label>
+            )}
 
             {/* zkratka z druhé strany: řešitel je někdo jiný → pohlídat dodání */}
-            {!waitSel && assignee && assignee !== userId && (
+            {!waitSel && assignee && assignee !== `u:${userId}` && (
               <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-soft">
                 <input
                   type="checkbox"
@@ -418,7 +441,7 @@ export default function NewTaskDialog({
                   onChange={(e) => toggleFollowUpOnAssignee(e.target.checked)}
                   className="h-3.5 w-3.5"
                 />
-                Follow-up — pohlídat dodání v Delegovaných
+                Follow-up — pohlídat dodání na stránce Čekám na
               </label>
             )}
           </div>
@@ -451,12 +474,12 @@ export default function NewTaskDialog({
           {canHide && (
             <label
               className="flex cursor-pointer items-center gap-1.5 text-sm text-ink-soft"
-              title="Skrytý úkol vidíš jen ty — nikdo jiný, ani admin."
+              title="Skrytý úkol vidí jen autor a řešitelé — nikdo jiný, ani admin."
             >
               <input
                 type="checkbox"
                 checked={isPrivate}
-                onChange={(e) => togglePrivate(e.target.checked)}
+                onChange={(e) => setIsPrivate(e.target.checked)}
                 className="h-4 w-4"
               />
               🔒 Skrytý

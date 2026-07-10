@@ -105,7 +105,7 @@ export default function DelegatedView({
   return (
     <div className="w-full space-y-4">
       <div>
-        <h1 className="font-display text-lg font-semibold">Delegované</h1>
+        <h1 className="font-display text-lg font-semibold">Čekám na</h1>
         <p className="text-xs text-ink-soft/70">
           {rows.length === 0
             ? "Na nikoho nečekáš."

@@ -20,8 +20,19 @@ z druhé strany u cizího řešitele přepínač „Follow-up" (čekám na = ře
 vidí jen autor + řešitelé (+ admin), není na žádné nástěnce, projekt jde
 doplnit později v kartě.
 
-**Skryté úkoly (`tasks.is_private`):** vidí je JEN autor — ani admin. Nesmí
-mít cizí řešitele; tiché „Čekám na" na nich funguje.
+**Skryté úkoly (`tasks.is_private`):** vidí je jen autor + jeho řešitelé —
+ani admin, ani ostatní členové. Tiché „Čekám na" na nich funguje.
+
+**Duch jako řešitel (3. kolo, `task_contact_assignees`):** řešitelem karty
+může být i externí kontakt. Duch kartu nevidí a nedostává notifikace —
+je to evidence „kdo to dělá", odškrtává za něj zadavatel. Duchové se
+nabízejí v pickerech řešitele (dialog, Inbox, karta) s 👻 a zakládají se
+rovnou z nabídky.
+
+**Pojmenování stránek (3. kolo):** „Delegované" → **„Čekám na"** (routa
+/delegated zůstává). „Úkoly" → **„Task force"**: úkoly mého týmu = moje +
+lidí, kterým smím zadávat (assign_grants); admin vidí všechny. Stránku
+nevidí, kdo může zadávat jen sobě (bez grantu).
 
 **Odemykání per člen (`workspace_members.can_delegate` / `can_hide`):**
 admin na Členech odemyká delegaci (pole Čekám na, sekce na kartě, stránka

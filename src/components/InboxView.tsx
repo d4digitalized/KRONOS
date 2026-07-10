@@ -21,6 +21,7 @@ const HOURGLASS_ICON = "M7 3h10M7 21h10M8 3v4l4 5 4-5V3M8 21v-4l4-5 4 5v4";
 /** Rozpracované třídění řádku: co už uživatel vybral (zapsáno v DB). */
 type SortState = {
   project: string | null;
+  /** "u:<userId>" (člen) | "c:<contactId>" (duch) */
   assignee: string | null;
   /** "u:<userId>" | "c:<contactId>" */
   waiting: string | null;
@@ -68,7 +69,9 @@ export default function InboxView({
     const [tRes, memRes, fuRes, grantRes, cRes] = await Promise.all([
       supabase
         .from("tasks")
-        .select("*, projects(name, position), task_assignees(user_id)")
+        .select(
+          "*, projects(name, position), task_assignees(user_id), task_contact_assignees(contact_id)"
+        )
         .eq("workspace_id", wsId)
         .eq("created_by", userId)
         .is("project_id", null)
@@ -91,15 +94,17 @@ export default function InboxView({
         .select("target_id")
         .eq("workspace_id", wsId)
         .eq("user_id", userId),
-      canDelegate
-        ? supabase.from("contacts").select("*").eq("workspace_id", wsId).order("name")
-        : Promise.resolve({ data: [] as Contact[] }),
+      supabase.from("contacts").select("*").eq("workspace_id", wsId).order("name"),
     ]);
     const waiting = new Set((fuRes.data ?? []).map((r) => r.task_id as string));
     const fresh = ((tRes.data ?? []) as unknown as (Task & {
       task_assignees?: { user_id: string }[];
+      task_contact_assignees?: { contact_id: string }[];
     })[]).filter(
-      (t) => (t.task_assignees ?? []).length === 0 && !waiting.has(t.id)
+      (t) =>
+        (t.task_assignees ?? []).length === 0 &&
+        (t.task_contact_assignees ?? []).length === 0 &&
+        !waiting.has(t.id)
     );
     // rozpracované (už zatříděné v DB, ale nepotvrzené) řádky nechat viset
     setTasks((prev) => {
@@ -181,27 +186,60 @@ export default function InboxView({
     patchSort(task.id, { project: projectId });
   }
 
-  async function assign(task: Task, targetId: string | null) {
+  /** value: "u:<userId>" (člen) nebo "c:<contactId>" (duch); null = zrušit. */
+  async function assign(task: Task, value: string | null) {
     const prev = sortRef.current[task.id]?.assignee ?? null;
-    if (prev === targetId) return;
+    if (prev === value) return;
     if (prev) {
-      await supabase
-        .from("task_assignees")
-        .delete()
-        .eq("task_id", task.id)
-        .eq("user_id", prev);
+      const prevId = prev.slice(2);
+      if (prev.startsWith("u:"))
+        await supabase
+          .from("task_assignees")
+          .delete()
+          .eq("task_id", task.id)
+          .eq("user_id", prevId);
+      else
+        await supabase
+          .from("task_contact_assignees")
+          .delete()
+          .eq("task_id", task.id)
+          .eq("contact_id", prevId);
     }
-    if (targetId) {
-      const { error } = await supabase
-        .from("task_assignees")
-        .insert({ task_id: task.id, user_id: targetId });
+    if (value) {
+      const id = value.slice(2);
+      const { error } = value.startsWith("u:")
+        ? await supabase
+            .from("task_assignees")
+            .insert({ task_id: task.id, user_id: id })
+        : await supabase
+            .from("task_contact_assignees")
+            .insert({ task_id: task.id, contact_id: id });
       if (error) {
         toast("Řešitele se nepodařilo přiřadit.", "error");
         return;
       }
-      pingNotifyEmails();
+      if (value.startsWith("u:")) pingNotifyEmails();
     }
-    patchSort(task.id, { assignee: targetId });
+    patchSort(task.id, { assignee: value });
+  }
+
+  /** „➕ založit kontakt" z pickeru řešitelů — duch jako řešitel. */
+  async function createGhostAndAssign(task: Task, name: string) {
+    const { data, error } = await supabase
+      .from("contacts")
+      .insert({ workspace_id: wsId, name, created_by: userId })
+      .select("id")
+      .single();
+    if (error || !data) {
+      toast("Kontakt se nepodařilo založit.", "error");
+      return;
+    }
+    setContacts((prev) =>
+      [...prev, { id: data.id, workspace_id: wsId, name, email: "", note: "", created_by: userId, created_at: "" } as Contact].sort(
+        (a, b) => a.name.localeCompare(b.name, "cs")
+      )
+    );
+    await assign(task, `c:${data.id}`);
   }
 
   /** value: "u:<userId>" nebo "c:<contactId>" — jako v kartě; null = zrušit. */
@@ -272,14 +310,18 @@ export default function InboxView({
 
   function markSorted(task: Task) {
     const s = sortRef.current[task.id];
+    const assigneeText = !s?.assignee
+      ? null
+      : s.assignee === `u:${userId}`
+        ? "Moje úkoly"
+        : s.assignee.startsWith("u:")
+          ? members.find((m) => m.user_id === s.assignee!.slice(2))?.profiles
+              ?.full_name
+          : `👻 ${contacts.find((c) => c.id === s.assignee!.slice(2))?.name ?? "duch"}`;
     const where = [
       s?.project ? (projects.find((p) => p.id === s.project)?.name ?? "projekt") : null,
-      s?.assignee
-        ? s.assignee === userId
-          ? "Moje úkoly"
-          : members.find((m) => m.user_id === s.assignee)?.profiles?.full_name
-        : null,
-      s?.waiting ? "Delegované" : null,
+      assigneeText,
+      s?.waiting ? "Čekám na" : null,
     ].filter(Boolean);
     toast(`Utříděno: ${task.title}${where.length ? ` → ${where.join(", ")}` : ""}`);
     dismiss(task);
@@ -382,11 +424,15 @@ export default function InboxView({
                     options={[
                       { id: null, label: "Bez řešitele" },
                       ...assignable.map((m) => ({
-                        id: m.user_id as string | null,
+                        id: `u:${m.user_id}` as string | null,
                         label:
                           m.user_id === userId
                             ? `${m.profiles?.full_name || m.profiles?.email} (já)`
                             : m.profiles?.full_name || m.profiles?.email || "?",
+                      })),
+                      ...contacts.map((c) => ({
+                        id: `c:${c.id}` as string | null,
+                        label: `👻 ${c.name}`,
                       })),
                     ]}
                     value={s.assignee}
@@ -397,6 +443,8 @@ export default function InboxView({
                     align="right"
                     hideLabelOnMobile
                     alwaysSearch
+                    onCreate={(name) => createGhostAndAssign(task, name)}
+                    createLabel="založit kontakt"
                   />
                   {canDelegate && (
                     <Picker

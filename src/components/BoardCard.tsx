@@ -15,6 +15,7 @@ function BoardCard({
   assigneeIds = [],
   subtaskCount,
   waitingOn,
+  ghostAssignees = [],
   onOpen,
   onStart,
 }: {
@@ -25,6 +26,8 @@ function BoardCard({
   subtaskCount?: { done: number; total: number };
   /** jméno člověka, na kterého karta čeká (follow-up) */
   waitingOn?: string;
+  /** duší řešitelé — kontakty bez účtu */
+  ghostAssignees?: { id: string; name: string }[];
   onOpen: (task: Task) => void;
   onStart: (task: Task) => void;
 }) {
@@ -91,7 +94,11 @@ function BoardCard({
           ))}
         </div>
       )}
-      {(task.due_date || assignees.length > 0 || subtaskCount || !isDone) && (
+      {(task.due_date ||
+        assignees.length > 0 ||
+        ghostAssignees.length > 0 ||
+        subtaskCount ||
+        !isDone) && (
         <div className="mt-1.5 flex items-center gap-2">
           {task.due_date && (
             <span
@@ -117,7 +124,7 @@ function BoardCard({
           )}
           {task.description && <span className="text-xs text-ink-soft/50">≡</span>}
           <span className="flex-1" />
-          {assignees.length > 0 && (
+          {(assignees.length > 0 || ghostAssignees.length > 0) && (
             <span className="flex -space-x-1.5">
               {assignees.slice(0, 3).map((m) => (
                 <Avatar
@@ -128,9 +135,18 @@ function BoardCard({
                   className="border border-surface"
                 />
               ))}
-              {assignees.length > 3 && (
+              {ghostAssignees.slice(0, Math.max(0, 3 - assignees.length)).map((g) => (
+                <span
+                  key={g.id}
+                  title={`${g.name} (duch)`}
+                  className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-black/10 text-[10px]"
+                >
+                  👻
+                </span>
+              ))}
+              {assignees.length + ghostAssignees.length > 3 && (
                 <span className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-black/10 text-[9px] font-medium text-ink-soft">
-                  +{assignees.length - 3}
+                  +{assignees.length + ghostAssignees.length - 3}
                 </span>
               )}
             </span>

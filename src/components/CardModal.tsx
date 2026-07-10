@@ -104,6 +104,7 @@ export default function CardModal({
   const [projectId, setProjectId] = useState(task.project_id);
   const [projects, setProjects] = useState<Project[]>([]);
   const [assignees, setAssignees] = useState<Set<string>>(new Set());
+  const [ghostAssignees, setGhostAssignees] = useState<Set<string>>(new Set());
   const [projectMembers, setProjectMembers] = useState<Set<string>>(new Set());
   const [grants, setGrants] = useState<Set<string>>(new Set());
   const [dueDate, setDueDate] = useState(task.due_date ?? "");
@@ -209,8 +210,12 @@ export default function CardModal({
   }, [supabase, task.workspace_id]);
 
   const loadAssignees = useCallback(async () => {
-    const [mineRes, pmRes, grantRes] = await Promise.all([
+    const [mineRes, ghostRes, pmRes, grantRes] = await Promise.all([
       supabase.from("task_assignees").select("user_id").eq("task_id", task.id),
+      supabase
+        .from("task_contact_assignees")
+        .select("contact_id")
+        .eq("task_id", task.id),
       task.project_id
         ? supabase
             .from("project_members")
@@ -224,6 +229,10 @@ export default function CardModal({
         .eq("user_id", userId),
     ]);
     setAssignees(new Set((mineRes.data ?? []).map((r) => r.user_id as string)));
+    if (!ghostRes.error)
+      setGhostAssignees(
+        new Set((ghostRes.data ?? []).map((r) => r.contact_id as string))
+      );
     setProjectMembers(new Set((pmRes.data ?? []).map((r) => r.user_id as string)));
     setGrants(new Set((grantRes.data ?? []).map((r) => r.target_id as string)));
   }, [supabase, task.id, task.project_id, task.workspace_id, userId]);
@@ -259,10 +268,9 @@ export default function CardModal({
 
   // admin smí přiřadit kohokoli z firmy (nečlena projektu na projekt doplníme
   // při přiřazení, jinak by úkol neviděl); člen vybírá jen z členů projektu.
-  // Úkol bez projektu: kdokoli z firmy; skrytý úkol: jen já sám.
-  const assignable = isPrivate
-    ? members.filter((m) => m.user_id === userId)
-    : isAdmin || !task.project_id
+  // Úkol bez projektu: kdokoli z firmy. Skrytý úkol vidí autor + řešitelé.
+  const assignable =
+    isAdmin || !task.project_id
       ? members
       : members.filter((m) => projectMembers.has(m.user_id) || m.role === "admin");
 
@@ -339,7 +347,7 @@ export default function CardModal({
     }
     loadFollowup();
     loadActivity();
-    notifyTasksChanged(); // úkol se přesouvá z Moje úkoly do Delegovaných
+    notifyTasksChanged(); // úkol se přesouvá z Moje úkoly na stránku Čekám na
   }
 
   async function stopWaiting() {
@@ -370,6 +378,45 @@ export default function CardModal({
     await startWaiting(`c:${data.id}`);
   }
 
+  /** Duch jako řešitel — jen evidence, kartu nevidí a nedostává notifikace. */
+  async function toggleGhost(contactId: string) {
+    const wasOn = ghostAssignees.has(contactId);
+    setGhostAssignees((prev) => {
+      const next = new Set(prev);
+      if (wasOn) next.delete(contactId);
+      else next.add(contactId);
+      return next;
+    });
+    const { error } = wasOn
+      ? await supabase
+          .from("task_contact_assignees")
+          .delete()
+          .eq("task_id", task.id)
+          .eq("contact_id", contactId)
+      : await supabase
+          .from("task_contact_assignees")
+          .insert({ task_id: task.id, contact_id: contactId });
+    if (error) {
+      toast("Změna řešitele se nezdařila.", "error");
+      loadAssignees();
+    }
+  }
+
+  /** „➕ založit kontakt" z pickeru řešitelů a rovnou přiřadit. */
+  async function createGhostAndAssign(name: string) {
+    const { data, error } = await supabase
+      .from("contacts")
+      .insert({ workspace_id: task.workspace_id, name, created_by: userId })
+      .select("id")
+      .single();
+    if (error || !data) {
+      toast("Kontakt se nepodařilo založit.", "error");
+      return;
+    }
+    await loadFollowup(); // obnoví seznam kontaktů
+    await toggleGhost(data.id as string);
+  }
+
   async function save() {
     const projectChanged = projectId !== task.project_id;
     const patch: Record<string, unknown> = {
@@ -388,14 +435,6 @@ export default function CardModal({
     // při načtení zařadí do prvního sloupce nového projektu
     if (projectChanged) patch.column_id = null;
 
-    // nově skrytá karta nesmí mít cizí řešitele (nikdo jiný ji neuvidí)
-    if (isPrivate && !task.is_private) {
-      await supabase
-        .from("task_assignees")
-        .delete()
-        .eq("task_id", task.id)
-        .neq("user_id", userId);
-    }
 
     const { error } = await supabase
       .from("tasks")
@@ -657,7 +696,7 @@ export default function CardModal({
           {isPrivate && (
             <span
               className="rounded-full bg-black/5 px-2 py-0.5 text-xs text-ink-soft"
-              title="Skrytý úkol — vidíš ho jen ty."
+              title="Skrytý úkol — vidí ho jen autor a řešitelé."
             >
               🔒 skrytý
             </span>
@@ -701,7 +740,7 @@ export default function CardModal({
 
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-xs text-ink-soft/70">Řešitelé:</span>
-          {assignable.length === 0 && (
+          {assignable.length === 0 && ghostAssignees.size === 0 && (
             <span className="text-xs text-ink-soft/50">
               projekt zatím nemá členy
             </span>
@@ -739,6 +778,34 @@ export default function CardModal({
               </button>
             );
           })}
+          {/* duší řešitelé — jen evidence, kartu nevidí */}
+          {contacts
+            .filter((c) => ghostAssignees.has(c.id))
+            .map((c) => (
+              <button
+                key={c.id}
+                onClick={() => toggleGhost(c.id)}
+                aria-pressed
+                title="Duch — kartu nevidí, odškrtává za něj zadavatel. Kliknutím odebereš."
+                className="inline-flex items-center gap-1 rounded-full border border-transparent bg-ink-soft/80 px-2 py-0.5 text-xs text-white"
+              >
+                👻 {c.name}
+              </button>
+            ))}
+          <Picker
+            options={contacts
+              .filter((c) => !ghostAssignees.has(c.id))
+              .map((c) => ({ id: c.id as string | null, label: `👻 ${c.name}` }))}
+            value={null}
+            onChange={(id) => id && toggleGhost(id)}
+            placeholder="+ duch"
+            iconPath="M12 2a7 7 0 0 0-7 7v11l2.5-2 2.5 2 2.5-2 2.5 2 2.5-2 2.5 2V9a7 7 0 0 0-7-7zM9 10h.01M15 10h.01"
+            ariaLabel="Přidat ducha jako řešitele"
+            align="left"
+            alwaysSearch
+            onCreate={createGhostAndAssign}
+            createLabel="založit kontakt"
+          />
         </div>
 
         {/* follow-up: úkol čeká na dodání členem či externím kontaktem;
@@ -844,7 +911,7 @@ export default function CardModal({
           {canTogglePrivate && (
             <label
               className="flex cursor-pointer items-center gap-1.5 text-sm text-ink-soft"
-              title="Skrytý úkol vidíš jen ty — nikdo jiný, ani admin. Cizí řešitelé se při skrytí odeberou."
+              title="Skrytý úkol vidí jen autor a řešitelé — nikdo jiný, ani admin."
             >
               <input
                 type="checkbox"

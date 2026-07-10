@@ -20,13 +20,18 @@ export default async function WorkspaceLayout({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: profile }, { data: ws }, { data: memberships }] =
+  const [{ data: profile }, { data: ws }, { data: memberships }, { count: grantCount }] =
     await Promise.all([
       supabase.from("profiles").select("*").eq("id", user.id).single(),
       supabase.from("workspaces").select("id, name").eq("id", wsId).maybeSingle(),
       supabase
         .from("workspace_members")
         .select("*, workspaces(id, name)")
+        .eq("user_id", user.id),
+      supabase
+        .from("assign_grants")
+        .select("target_id", { count: "exact", head: true })
+        .eq("workspace_id", wsId)
         .eq("user_id", user.id),
     ]);
 
@@ -38,6 +43,8 @@ export default async function WorkspaceLayout({
   // funkce navíc: adminům vždy, členům dle flagů odemčených adminem
   const canDelegate = isAdmin || !!membership?.can_delegate;
   const canHide = isAdmin || !!membership?.can_hide;
+  // Task force: kdo může zadávat i jiným (admin / aspoň jeden grant)
+  const canTaskforce = isAdmin || (grantCount ?? 0) > 0;
 
   const workspaces: Workspace[] = (memberships ?? [])
     .map((m) => m.workspaces as unknown as Workspace)
@@ -52,6 +59,7 @@ export default async function WorkspaceLayout({
         isAdmin={isAdmin}
         isSuperAdmin={isSuperAdmin}
         canDelegate={canDelegate}
+        canTaskforce={canTaskforce}
         userId={user.id}
         userName={profile?.full_name || profile?.email || ""}
         userProfile={profile}
@@ -67,6 +75,7 @@ export default async function WorkspaceLayout({
         isAdmin={isAdmin}
         isSuperAdmin={isSuperAdmin}
         canDelegate={canDelegate}
+        canTaskforce={canTaskforce}
         userId={user.id}
         userName={profile?.full_name || profile?.email || ""}
         userProfile={profile}

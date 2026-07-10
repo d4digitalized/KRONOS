@@ -62,6 +62,7 @@ export function buildNavSections(
   isAdmin: boolean,
   isSuperAdmin: boolean,
   canDelegate = false,
+  canTaskforce = false,
 ): NavSection[] {
   return [
     {
@@ -69,18 +70,27 @@ export function buildNavSections(
       items: [
         { href: `/w/${wsId}/inbox`, label: "Inbox", icon: "inbox", badge: true },
         { href: `/w/${wsId}/my`, label: "Moje úkoly", icon: "user" },
-        // Delegované jen pro odemknuté delegátory (admin / can_delegate)
+        // Čekám na — jen pro odemknuté delegátory (admin / can_delegate)
         ...(canDelegate
           ? [
               {
                 href: `/w/${wsId}/delegated`,
-                label: "Delegované",
+                label: "Čekám na",
                 icon: "hourglass" as const,
               },
             ]
           : []),
         { href: `/w/${wsId}`, label: "Projekty", icon: "board" },
-        { href: `/w/${wsId}/tasks`, label: "Úkoly", icon: "check" },
+        // Task force — úkoly týmu; jen kdo může zadávat i jiným (admin / grant)
+        ...(canTaskforce
+          ? [
+              {
+                href: `/w/${wsId}/tasks`,
+                label: "Task force",
+                icon: "check" as const,
+              },
+            ]
+          : []),
         { href: `/w/${wsId}/time`, label: "Report", icon: "clock" },
       ],
     },
@@ -114,12 +124,20 @@ export function buildNavSections(
   ];
 }
 
-/** Čtyři hlavní položky pro spodní tab-bar na mobilu. */
-export function primaryNavItems(wsId: string): NavItem[] {
+/** Hlavní položky pro spodní tab-bar na mobilu. */
+export function primaryNavItems(wsId: string, canTaskforce = false): NavItem[] {
   return [
     { href: `/w/${wsId}/my`, label: "Moje", icon: "user" },
     { href: `/w/${wsId}`, label: "Projekty", icon: "board" },
-    { href: `/w/${wsId}/tasks`, label: "Úkoly", icon: "check" },
+    ...(canTaskforce
+      ? [
+          {
+            href: `/w/${wsId}/tasks`,
+            label: "Task force",
+            icon: "check" as const,
+          },
+        ]
+      : []),
     { href: `/w/${wsId}/time`, label: "Report", icon: "clock" },
   ];
 }

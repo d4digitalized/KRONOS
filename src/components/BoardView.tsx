@@ -81,6 +81,9 @@ export default function BoardView({
   const [cardLabels, setCardLabels] = useState<Record<string, Label[]>>({});
   const [cardAssignees, setCardAssignees] = useState<Record<string, string[]>>({});
   const [cardWaiting, setCardWaiting] = useState<Record<string, string>>({});
+  const [cardGhosts, setCardGhosts] = useState<
+    Record<string, { id: string; name: string }[]>
+  >({});
   const [subCounts, setSubCounts] = useState<Record<string, { done: number; total: number }>>({});
   const [wsLabels, setWsLabels] = useState<Label[]>([]);
   // filtry
@@ -97,7 +100,7 @@ export default function BoardView({
   );
 
   const load = useCallback(async () => {
-    const [colRes, taskRes, memRes, subRes, labelRes, tlRes, taRes, fuRes] = await Promise.all([
+    const [colRes, taskRes, memRes, subRes, labelRes, tlRes, taRes, fuRes, gaRes] = await Promise.all([
       supabase
         .from("board_columns")
         .select("*")
@@ -132,6 +135,10 @@ export default function BoardView({
       supabase
         .from("task_followups")
         .select("task_id, waiting_user_id, contacts(name), tasks!inner(project_id)")
+        .eq("tasks.project_id", projectId),
+      supabase
+        .from("task_contact_assignees")
+        .select("task_id, contacts(id, name), tasks!inner(project_id)")
         .eq("tasks.project_id", projectId),
     ]);
     const cols = (colRes.data as BoardColumn[]) ?? [];
@@ -178,6 +185,18 @@ export default function BoardView({
       if (name) waitingByTask[row.task_id as string] = name;
     }
     setCardWaiting(waitingByTask);
+
+    // duší řešitelé — jen evidence na kartě (avatar se jménem kontaktu)
+    const ghostsByTask: Record<string, { id: string; name: string }[]> = {};
+    for (const row of gaRes.data ?? []) {
+      const contact = row.contacts as unknown as { id: string; name: string } | null;
+      if (!contact) continue;
+      ghostsByTask[row.task_id as string] = [
+        ...(ghostsByTask[row.task_id as string] ?? []),
+        contact,
+      ];
+    }
+    setCardGhosts(ghostsByTask);
 
     const byCol: CardsByCol = {};
     const lost: Task[] = [];
@@ -536,6 +555,7 @@ export default function BoardView({
                         assigneeIds={cardAssignees[task.id]}
                         subtaskCount={subCounts[task.id]}
                         waitingOn={cardWaiting[task.id]}
+                        ghostAssignees={cardGhosts[task.id]}
                         onOpen={openCard}
                         onStart={startCard}
                       />
