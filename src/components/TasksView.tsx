@@ -282,9 +282,7 @@ export default function TasksView({
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="font-display text-lg font-semibold">Task force</h1>
         <span className="text-xs text-ink-soft/70">
-          {isAdmin
-            ? "úkoly všech ve firmě"
-            : "úkoly tvého týmu — ty + lidé, kterým můžeš zadávat"}
+          úkoly všech ve Vaší skupině
         </span>
         <span className="flex-1" />
         <input

@@ -81,13 +81,13 @@ export function buildNavSections(
             ]
           : []),
         { href: `/w/${wsId}`, label: "Projekty", icon: "board" },
-        // Task force — úkoly týmu; jen kdo může zadávat i jiným (admin / grant)
+        // Task force — úkoly skupiny; jen kdo může zadávat i jiným (admin / grant)
         ...(canTaskforce
           ? [
               {
                 href: `/w/${wsId}/tasks`,
                 label: "Task force",
-                icon: "check" as const,
+                icon: "users" as const,
               },
             ]
           : []),
@@ -134,7 +134,7 @@ export function primaryNavItems(wsId: string, canTaskforce = false): NavItem[] {
           {
             href: `/w/${wsId}/tasks`,
             label: "Task force",
-            icon: "check" as const,
+            icon: "users" as const,
           },
         ]
       : []),
