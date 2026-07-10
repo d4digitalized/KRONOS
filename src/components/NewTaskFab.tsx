@@ -3,6 +3,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { notifyTasksChanged } from "@/lib/tasksChanged";
+import type { WorkspaceOption } from "@/lib/types";
 
 // Dialog se dogeneruje až při otevření — nezatěžuje bundle každé stránky.
 const NewTaskDialog = dynamic(() => import("@/components/NewTaskDialog"), {
@@ -13,13 +14,12 @@ const NewTaskDialog = dynamic(() => import("@/components/NewTaskDialog"), {
 export default function NewTaskFab({
   wsId,
   userId,
-  canDelegate = false,
-  canHide = false,
+  workspaces,
 }: {
   wsId: string;
   userId: string;
-  canDelegate?: boolean;
-  canHide?: boolean;
+  /** moje firmy i s právy — dialog mezi nimi umí přepnout */
+  workspaces: WorkspaceOption[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -50,8 +50,7 @@ export default function NewTaskFab({
         <NewTaskDialog
           wsId={wsId}
           userId={userId}
-          canDelegate={canDelegate}
-          canHide={canHide}
+          workspaces={workspaces}
           onClose={() => setOpen(false)}
           onCreated={() => {
             setOpen(false);

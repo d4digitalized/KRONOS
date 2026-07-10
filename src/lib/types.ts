@@ -18,6 +18,13 @@ export type Workspace = {
   name: string;
 };
 
+/** Workspace i s mými oprávněními v něm — přepínač v „Nový úkol" podle nich
+    rozhoduje, zda ukázat „Čekám na" a „Skrytý". */
+export type WorkspaceOption = Workspace & {
+  canDelegate: boolean;
+  canHide: boolean;
+};
+
 export type Membership = {
   workspace_id: string;
   user_id: string;

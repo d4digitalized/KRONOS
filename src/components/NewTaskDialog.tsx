@@ -13,29 +13,35 @@ import PersonPicker, {
   personRefId,
   type PersonRef,
 } from "@/components/PersonPicker";
-import type { Contact, Membership, Project } from "@/lib/types";
+import type { Contact, Membership, Project, WorkspaceOption } from "@/lib/types";
 
 /** Rychlé založení úkolu. Řešitel je předvyplněný na mě; koho smím přiřadit
     navíc, řeší role (admin) a granty — stejná pravidla jako v kartě.
     Řešitelem může být i duch (externí kontakt bez účtu). Bez projektu =
     soukromý úkol (vidí autor + řešitelé). Delegátoři mají navíc pole
-    „Čekám na" (follow-up), skrývači zaškrtávátko skrytého úkolu. */
+    „Čekám na" (follow-up), skrývači zaškrtávátko skrytého úkolu.
+    Mám-li víc firem, jde úkol založit i mimo tu právě otevřenou — práva
+    („Čekám na", „Skrytý") se přepínají spolu s firmou. */
 export default function NewTaskDialog({
   wsId,
   userId,
-  canDelegate = false,
-  canHide = false,
+  workspaces,
   onClose,
   onCreated,
 }: {
+  /** výchozí firma — ta, ve které právě jsem */
   wsId: string;
   userId: string;
-  canDelegate?: boolean;
-  canHide?: boolean;
+  workspaces: WorkspaceOption[];
   onClose: () => void;
   onCreated: () => void;
 }) {
   const supabase = createClient();
+  // úkol zakládám do vybrané firmy, ne nutně do té, kterou mám otevřenou
+  const [activeWs, setActiveWs] = useState(wsId);
+  const current = workspaces.find((w) => w.id === activeWs);
+  const canDelegate = current?.canDelegate ?? false;
+  const canHide = current?.canHide ?? false;
   const [title, setTitle] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
   // řešitel a follow-up jako PersonRef ("u:<userId>" | "c:<contactId>");
@@ -68,7 +74,7 @@ export default function NewTaskDialog({
       supabase
         .from("projects")
         .select("*")
-        .eq("workspace_id", wsId)
+        .eq("workspace_id", activeWs)
         .eq("archived", false)
         .order("position")
         .order("name"),
@@ -77,13 +83,17 @@ export default function NewTaskDialog({
         .select(
           "*, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
         )
-        .eq("workspace_id", wsId),
+        .eq("workspace_id", activeWs),
       supabase
         .from("assign_grants")
         .select("target_id")
-        .eq("workspace_id", wsId)
+        .eq("workspace_id", activeWs)
         .eq("user_id", userId),
-      supabase.from("contacts").select("*").eq("workspace_id", wsId).order("name"),
+      supabase
+        .from("contacts")
+        .select("*")
+        .eq("workspace_id", activeWs)
+        .order("name"),
     ]).then(([projRes, memRes, grantRes, contactRes]) => {
       const list = (projRes.data as Project[]) ?? [];
       setProjects(list);
@@ -93,7 +103,24 @@ export default function NewTaskDialog({
       setContacts((contactRes.data as Contact[]) ?? []);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsId, userId]);
+  }, [activeWs, userId]);
+
+  /** Projekty, lidé i kontakty patří firmě — po přepnutí nic z nich neplatí
+      (RLS by úkol stejně odmítla). Text, termín a priorita přežijí. */
+  function switchWorkspace(id: string) {
+    if (id === activeWs) return;
+    setActiveWs(id);
+    setProjectId(null);
+    setAssignee(null);
+    setWaitSel(null);
+    setAssignToo(false);
+    setIsPrivate(false);
+    setProjects([]);
+    setMembers([]);
+    setContacts([]);
+    setGrants(new Set());
+    setProjectMembers(new Set());
+  }
 
   // členy projektu potřebujeme pro omezení řešitelů u neadmina
   useEffect(() => {
@@ -176,7 +203,7 @@ export default function NewTaskDialog({
     const { data: created, error } = await supabase
       .from("tasks")
       .insert({
-        workspace_id: wsId,
+        workspace_id: activeWs,
         project_id: projectId,
         column_id: columnId,
         title: name,
@@ -230,7 +257,7 @@ export default function NewTaskDialog({
       const id = personRefId(waitSel);
       const { error: fuError } = await supabase.from("task_followups").insert({
         task_id: created.id,
-        workspace_id: wsId,
+        workspace_id: activeWs,
         created_by: userId,
         waiting_user_id: isMemberRef(waitSel) ? id : null,
         waiting_contact_id: isMemberRef(waitSel) ? null : id,
@@ -258,13 +285,31 @@ export default function NewTaskDialog({
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-lg space-y-4 rounded-xl bg-surface p-5 shadow-xl"
       >
-        <div className="flex items-start gap-3">
-          <h2 className="flex-1 font-display text-lg font-semibold">Nový úkol</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="min-w-0 flex-1 truncate font-display text-lg font-semibold">
+            Nový úkol
+          </h2>
+          {/* jedinou firmu není mezi čím přepínat — stejně jako v Sidebaru */}
+          {workspaces.length > 1 && (
+            <select
+              value={activeWs}
+              onChange={(e) => switchWorkspace(e.target.value)}
+              aria-label="Firma nového úkolu"
+              title="Do které firmy úkol založit"
+              className="input max-w-[45%] px-2 py-1 text-sm"
+            >
+              {workspaces.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             onClick={onClose}
             aria-label="Zavřít"
-            className="rounded-md px-2 py-1 text-ink-soft/70 hover:bg-black/5"
+            className="shrink-0 rounded-md px-2 py-1 text-ink-soft/70 hover:bg-black/5"
           >
             ✕
           </button>
@@ -288,7 +333,7 @@ export default function NewTaskDialog({
             alwaysSearch
           />
           <PersonPicker
-            wsId={wsId}
+            wsId={activeWs}
             userId={userId}
             members={assignable}
             contacts={contacts}
@@ -307,7 +352,7 @@ export default function NewTaskDialog({
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-ink-soft">⏳ Čekám na</span>
               <PersonPicker
-                wsId={wsId}
+                wsId={activeWs}
                 userId={userId}
                 members={members}
                 contacts={contacts}

@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import TimerBar from "@/components/TimerBar";
 import NewTaskFab from "@/components/NewTaskFab";
-import type { Workspace } from "@/lib/types";
+import type { Workspace, WorkspaceOption } from "@/lib/types";
 
 export default async function WorkspaceLayout({
   children,
@@ -46,10 +46,25 @@ export default async function WorkspaceLayout({
   // Task force: kdo může zadávat i jiným (admin / aspoň jeden grant)
   const canTaskforce = isAdmin || (grantCount ?? 0) > 0;
 
-  const workspaces: Workspace[] = (memberships ?? [])
-    .map((m) => m.workspaces as unknown as Workspace)
-    .filter(Boolean);
-  if (!workspaces.some((w) => w.id === ws.id)) workspaces.unshift(ws);
+  // ke každé mé firmě i práva v ní — přepínač v „Nový úkol" je potřebuje,
+  // canDelegate/canHide se firmu od firmy liší
+  const wsOptions: WorkspaceOption[] = (memberships ?? [])
+    .filter((m) => m.workspaces)
+    .map((m) => {
+      const w = m.workspaces as unknown as Workspace;
+      const wsAdmin = isSuperAdmin || m.role === "admin";
+      return {
+        id: w.id,
+        name: w.name,
+        canDelegate: wsAdmin || !!m.can_delegate,
+        canHide: wsAdmin || !!m.can_hide,
+      };
+    });
+  // super-admin může být na firmě, kde členem není
+  if (!wsOptions.some((w) => w.id === ws.id))
+    wsOptions.unshift({ id: ws.id, name: ws.name, canDelegate, canHide });
+
+  const workspaces: Workspace[] = wsOptions.map(({ id, name }) => ({ id, name }));
 
   return (
     <div className="flex min-h-screen bg-paper">
@@ -80,12 +95,7 @@ export default async function WorkspaceLayout({
         userName={profile?.full_name || profile?.email || ""}
         userProfile={profile}
       />
-      <NewTaskFab
-        wsId={wsId}
-        userId={user.id}
-        canDelegate={canDelegate}
-        canHide={canHide}
-      />
+      <NewTaskFab wsId={wsId} userId={user.id} workspaces={wsOptions} />
     </div>
   );
 }
