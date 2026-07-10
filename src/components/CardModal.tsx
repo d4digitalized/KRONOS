@@ -8,8 +8,12 @@ import { confirmDialog } from "@/lib/confirm";
 import { pingNotifyEmails } from "@/lib/notify";
 import { notifyTasksChanged } from "@/lib/tasksChanged";
 import { PRIORITIES, RECURRENCE_OPTIONS, priorityColor } from "@/lib/priority";
-import { projectColor } from "@/components/ProjectPicker";
-import Picker from "@/components/Picker";
+import ProjectPicker, { projectColor } from "@/components/ProjectPicker";
+import PersonPicker, {
+  HOURGLASS_ICON,
+  isMemberRef,
+  personRefId,
+} from "@/components/PersonPicker";
 import Avatar from "@/components/Avatar";
 import CardAttachments from "@/components/CardAttachments";
 import CardChecklists from "@/components/CardChecklists";
@@ -364,18 +368,26 @@ export default function CardModal({
     notifyTasksChanged();
   }
 
-  /** „➕ založit kontakt" z pickeru a rovnou na něj čekat. */
-  async function createContactAndWait(name: string) {
+  /** Nový duch z „➕ založit" v PersonPickeru — jen doplnit do seznamu. */
+  function addContact(contact: Contact) {
+    setContacts((prev) =>
+      [...prev, contact].sort((a, b) => a.name.localeCompare(b.name, "cs"))
+    );
+  }
+
+  /** „➕ založit projekt" z pickeru v hlavičce (jen admin — RLS). */
+  async function createProjectAndSelect(name: string) {
     const { data, error } = await supabase
-      .from("contacts")
-      .insert({ workspace_id: task.workspace_id, name, created_by: userId })
+      .from("projects")
+      .insert({ workspace_id: task.workspace_id, name })
       .select("id")
       .single();
     if (error || !data) {
-      toast("Kontakt se nepodařilo založit.", "error");
+      toast("Projekt se nepodařilo založit.", "error");
       return;
     }
-    await startWaiting(`c:${data.id}`);
+    await loadProjects();
+    setProjectId(data.id as string);
   }
 
   /** Duch jako řešitel — jen evidence, kartu nevidí a nedostává notifikace. */
@@ -400,21 +412,6 @@ export default function CardModal({
       toast("Změna řešitele se nezdařila.", "error");
       loadAssignees();
     }
-  }
-
-  /** „➕ založit kontakt" z pickeru řešitelů a rovnou přiřadit. */
-  async function createGhostAndAssign(name: string) {
-    const { data, error } = await supabase
-      .from("contacts")
-      .insert({ workspace_id: task.workspace_id, name, created_by: userId })
-      .select("id")
-      .single();
-    if (error || !data) {
-      toast("Kontakt se nepodařilo založit.", "error");
-      return;
-    }
-    await loadFollowup(); // obnoví seznam kontaktů
-    await toggleGhost(data.id as string);
   }
 
   async function save() {
@@ -674,20 +671,14 @@ export default function CardModal({
         <div className="flex items-center gap-2 border-b border-line px-3 py-2.5 sm:px-4">
           {(isAdmin || (!task.project_id && task.created_by === userId)) &&
           projects.length > 0 ? (
-            <select
-              value={projectId ?? ""}
-              onChange={(e) => setProjectId(e.target.value || null)}
-              aria-label="Projekt karty"
-              title="Přesunout kartu do jiného projektu"
-              className="input max-w-[65%] px-2 py-1 text-sm font-medium"
-            >
-              <option value="">Bez projektu</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            <ProjectPicker
+              projects={projects}
+              value={projectId}
+              onChange={setProjectId}
+              align="left"
+              alwaysSearch
+              onCreate={isAdmin ? createProjectAndSelect : undefined}
+            />
           ) : (
             <span className="chip max-w-[65%] truncate px-2 py-1 text-sm">
               {projects.find((p) => p.id === projectId)?.name ?? "Bez projektu"}
@@ -738,46 +729,41 @@ export default function CardModal({
           className="input w-full px-3 py-2"
         />
 
+        {/* jednotný vzor: přiřazení = chipy (klik odebere), přidání = kombobox */}
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-xs text-ink-soft/70">Řešitelé:</span>
-          {assignable.length === 0 && ghostAssignees.size === 0 && (
-            <span className="text-xs text-ink-soft/50">
-              projekt zatím nemá členy
-            </span>
+          {assignees.size === 0 && ghostAssignees.size === 0 && (
+            <span className="text-xs text-ink-soft/50">nikdo</span>
           )}
-          {assignable.map((m) => {
-            const on = assignees.has(m.user_id);
-            const name = m.profiles?.full_name || m.profiles?.email || "?";
-            // bez oprávnění: cizí přiřazení jen zobrazit, nepřiřazené skrýt
-            if (!canManage(m.user_id)) {
-              if (!on) return null;
+          {members
+            .filter((m) => assignees.has(m.user_id))
+            .map((m) => {
+              const name = m.profiles?.full_name || m.profiles?.email || "?";
+              // bez oprávnění: cizí přiřazení jen zobrazit
+              if (!canManage(m.user_id)) {
+                return (
+                  <span
+                    key={m.user_id}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-transparent bg-accent/70 py-0.5 pl-0.5 pr-2 text-xs text-white"
+                    title="Přiřazení může změnit admin nebo pověřený kolega"
+                  >
+                    <Avatar profile={m.profiles} colorKey={m.user_id} size="xs" />
+                    {name}
+                  </span>
+                );
+              }
               return (
-                <span
+                <button
                   key={m.user_id}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-transparent bg-accent/70 py-0.5 pl-0.5 pr-2 text-xs text-white"
-                  title="Přiřazení může změnit admin nebo pověřený kolega"
+                  onClick={() => toggleAssignee(m.user_id)}
+                  title="Kliknutím odebereš"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-transparent bg-accent py-0.5 pl-0.5 pr-2 text-xs text-white transition-colors hover:bg-accent/80"
                 >
                   <Avatar profile={m.profiles} colorKey={m.user_id} size="xs" />
                   {name}
-                </span>
+                </button>
               );
-            }
-            return (
-              <button
-                key={m.user_id}
-                onClick={() => toggleAssignee(m.user_id)}
-                aria-pressed={on}
-                className={`inline-flex items-center gap-1.5 rounded-full border py-0.5 pl-0.5 pr-2 text-xs transition-colors ${
-                  on
-                    ? "border-transparent bg-accent text-white"
-                    : "border-line text-ink-soft hover:border-ink-soft/40"
-                }`}
-              >
-                <Avatar profile={m.profiles} colorKey={m.user_id} size="xs" />
-                {name}
-              </button>
-            );
-          })}
+            })}
           {/* duší řešitelé — jen evidence, kartu nevidí */}
           {contacts
             .filter((c) => ghostAssignees.has(c.id))
@@ -785,26 +771,33 @@ export default function CardModal({
               <button
                 key={c.id}
                 onClick={() => toggleGhost(c.id)}
-                aria-pressed
                 title="Duch — kartu nevidí, odškrtává za něj zadavatel. Kliknutím odebereš."
                 className="inline-flex items-center gap-1 rounded-full border border-transparent bg-ink-soft/80 px-2 py-0.5 text-xs text-white"
               >
                 👻 {c.name}
               </button>
             ))}
-          <Picker
-            options={contacts
-              .filter((c) => !ghostAssignees.has(c.id))
-              .map((c) => ({ id: c.id as string | null, label: `👻 ${c.name}` }))}
+          <PersonPicker
+            wsId={task.workspace_id}
+            userId={userId}
+            members={assignable.filter((m) => canManage(m.user_id))}
+            contacts={contacts}
             value={null}
-            onChange={(id) => id && toggleGhost(id)}
-            placeholder="+ duch"
-            iconPath="M12 2a7 7 0 0 0-7 7v11l2.5-2 2.5 2 2.5-2 2.5 2 2.5-2 2.5 2V9a7 7 0 0 0-7-7zM9 10h.01M15 10h.01"
-            ariaLabel="Přidat ducha jako řešitele"
-            align="left"
-            alwaysSearch
-            onCreate={createGhostAndAssign}
-            createLabel="založit kontakt"
+            onChange={(ref) =>
+              ref &&
+              (isMemberRef(ref)
+                ? toggleAssignee(personRefId(ref))
+                : toggleGhost(personRefId(ref)))
+            }
+            onContactCreated={addContact}
+            excludeRefs={
+              new Set([
+                ...[...assignees].map((id) => `u:${id}`),
+                ...[...ghostAssignees].map((id) => `c:${id}`),
+              ])
+            }
+            placeholder="+ řešitel"
+            ariaLabel="Přidat řešitele"
           />
         </div>
 
@@ -842,28 +835,18 @@ export default function CardModal({
               )}
             </>
           ) : (
-            <Picker
-              options={[
-                ...members
-                  .filter((m) => m.user_id !== userId)
-                  .map((m) => ({
-                    id: `u:${m.user_id}` as string | null,
-                    label: `👤 ${m.profiles?.full_name || m.profiles?.email}`,
-                  })),
-                ...contacts.map((c) => ({
-                  id: `c:${c.id}` as string | null,
-                  label: `👻 ${c.name}`,
-                })),
-              ]}
+            <PersonPicker
+              wsId={task.workspace_id}
+              userId={userId}
+              members={members}
+              contacts={contacts}
               value={null}
-              onChange={(id) => id && startWaiting(id)}
+              onChange={(ref) => ref && startWaiting(ref)}
+              onContactCreated={addContact}
+              includeMe={false}
               placeholder="nastavit follow-up"
-              iconPath="M7 3h10M7 21h10M8 3v4l4 5 4-5V3M8 21v-4l4-5 4 5v4"
               ariaLabel="Čekám na"
-              align="left"
-              alwaysSearch
-              onCreate={createContactAndWait}
-              createLabel="založit kontakt"
+              iconPath={HOURGLASS_ICON}
             />
           )}
         </div>

@@ -8,15 +8,11 @@ import { confirmDialog } from "@/lib/confirm";
 import { pingNotifyEmails } from "@/lib/notify";
 import { notifyTasksChanged, TASKS_CHANGED_EVENT } from "@/lib/tasksChanged";
 import ProjectPicker from "@/components/ProjectPicker";
-import Picker from "@/components/Picker";
+import PersonPicker, { HOURGLASS_ICON } from "@/components/PersonPicker";
 import type { Contact, Membership, Project, Task } from "@/lib/types";
 
 // Modal se načte až při otevření karty — nezatěžuje základní bundle routy.
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
-
-const USER_ICON =
-  "M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
-const HOURGLASS_ICON = "M7 3h10M7 21h10M8 3v4l4 5 4-5V3M8 21v-4l4-5 4 5v4";
 
 /** Rozpracované třídění řádku: co už uživatel vybral (zapsáno v DB). */
 type SortState = {
@@ -223,23 +219,11 @@ export default function InboxView({
     patchSort(task.id, { assignee: value });
   }
 
-  /** „➕ založit kontakt" z pickeru řešitelů — duch jako řešitel. */
-  async function createGhostAndAssign(task: Task, name: string) {
-    const { data, error } = await supabase
-      .from("contacts")
-      .insert({ workspace_id: wsId, name, created_by: userId })
-      .select("id")
-      .single();
-    if (error || !data) {
-      toast("Kontakt se nepodařilo založit.", "error");
-      return;
-    }
+  /** Nový duch z „➕ založit" v PersonPickeru — jen doplnit do seznamu. */
+  function addContact(contact: Contact) {
     setContacts((prev) =>
-      [...prev, { id: data.id, workspace_id: wsId, name, email: "", note: "", created_by: userId, created_at: "" } as Contact].sort(
-        (a, b) => a.name.localeCompare(b.name, "cs")
-      )
+      [...prev, contact].sort((a, b) => a.name.localeCompare(b.name, "cs"))
     );
-    await assign(task, `c:${data.id}`);
   }
 
   /** value: "u:<userId>" nebo "c:<contactId>" — jako v kartě; null = zrušit. */
@@ -279,25 +263,6 @@ export default function InboxView({
     }
     await loadProjects();
     await setProject(task, data.id as string);
-  }
-
-  /** „➕ založit kontakt" z pickeru a rovnou na něj čekat. */
-  async function createContactAndWait(task: Task, name: string) {
-    const { data, error } = await supabase
-      .from("contacts")
-      .insert({ workspace_id: wsId, name, created_by: userId })
-      .select("id")
-      .single();
-    if (error || !data) {
-      toast("Kontakt se nepodařilo založit.", "error");
-      return;
-    }
-    setContacts((prev) =>
-      [...prev, { id: data.id, workspace_id: wsId, name, email: "", note: "", created_by: userId, created_at: "" } as Contact].sort(
-        (a, b) => a.name.localeCompare(b.name, "cs")
-      )
-    );
-    await setWaiting(task, `c:${data.id}`);
   }
 
   // ---------------------------------------------------------------- odsunutí
@@ -420,57 +385,36 @@ export default function InboxView({
                       isAdmin ? (name) => createProjectAndMove(task, name) : undefined
                     }
                   />
-                  <Picker
-                    options={[
-                      { id: null, label: "Bez řešitele" },
-                      ...assignable.map((m) => ({
-                        id: `u:${m.user_id}` as string | null,
-                        label:
-                          m.user_id === userId
-                            ? `${m.profiles?.full_name || m.profiles?.email} (já)`
-                            : m.profiles?.full_name || m.profiles?.email || "?",
-                      })),
-                      ...contacts.map((c) => ({
-                        id: `c:${c.id}` as string | null,
-                        label: `👻 ${c.name}`,
-                      })),
-                    ]}
+                  <PersonPicker
+                    wsId={wsId}
+                    userId={userId}
+                    members={assignable}
+                    contacts={contacts}
                     value={s.assignee}
-                    onChange={(id) => assign(task, id)}
+                    onChange={(ref) => assign(task, ref)}
+                    onContactCreated={addContact}
+                    noneLabel="Bez řešitele"
                     placeholder="Řešitel"
-                    iconPath={USER_ICON}
                     ariaLabel="Řešitel"
                     align="right"
                     hideLabelOnMobile
-                    alwaysSearch
-                    onCreate={(name) => createGhostAndAssign(task, name)}
-                    createLabel="založit kontakt"
                   />
                   {canDelegate && (
-                    <Picker
-                      options={[
-                        { id: null, label: "— nikdo —" },
-                        ...members
-                          .filter((m) => m.user_id !== userId)
-                          .map((m) => ({
-                            id: `u:${m.user_id}` as string | null,
-                            label: `👤 ${m.profiles?.full_name || m.profiles?.email}`,
-                          })),
-                        ...contacts.map((c) => ({
-                          id: `c:${c.id}` as string | null,
-                          label: `👻 ${c.name}`,
-                        })),
-                      ]}
+                    <PersonPicker
+                      wsId={wsId}
+                      userId={userId}
+                      members={members}
+                      contacts={contacts}
                       value={s.waiting}
-                      onChange={(id) => setWaiting(task, id)}
+                      onChange={(ref) => setWaiting(task, ref)}
+                      onContactCreated={addContact}
+                      includeMe={false}
+                      noneLabel="— nikdo —"
                       placeholder="Čekám na"
-                      iconPath={HOURGLASS_ICON}
                       ariaLabel="Čekám na"
+                      iconPath={HOURGLASS_ICON}
                       align="right"
                       hideLabelOnMobile
-                      alwaysSearch
-                      onCreate={(name) => createContactAndWait(task, name)}
-                      createLabel="založit kontakt"
                     />
                   )}
                   <button

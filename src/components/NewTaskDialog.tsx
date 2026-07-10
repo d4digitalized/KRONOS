@@ -7,22 +7,19 @@ import { toast } from "@/lib/toast";
 import { pingNotifyEmails } from "@/lib/notify";
 import { PRIORITIES } from "@/lib/priority";
 import ProjectPicker from "@/components/ProjectPicker";
-import Picker from "@/components/Picker";
+import PersonPicker, {
+  HOURGLASS_ICON,
+  isMemberRef,
+  personRefId,
+  type PersonRef,
+} from "@/components/PersonPicker";
 import type { Contact, Membership, Project } from "@/lib/types";
-
-const USER_ICON =
-  "M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
-const HOURGLASS_ICON = "M7 3h10M7 21h10M8 3v4l4 5 4-5V3M8 21v-4l4-5 4 5v4";
-
-/** Vybraný cíl follow-upu: člen (u), nebo externí kontakt (c). */
-type WaitTarget =
-  | { kind: "u"; id: string; name: string }
-  | { kind: "c"; id: string; name: string };
 
 /** Rychlé založení úkolu. Řešitel je předvyplněný na mě; koho smím přiřadit
     navíc, řeší role (admin) a granty — stejná pravidla jako v kartě.
-    Bez projektu = soukromý úkol (vidí autor + řešitelé). Delegátoři mají
-    navíc pole „Čekám na" (follow-up), skrývači zaškrtávátko skrytého úkolu. */
+    Řešitelem může být i duch (externí kontakt bez účtu). Bez projektu =
+    soukromý úkol (vidí autor + řešitelé). Delegátoři mají navíc pole
+    „Čekám na" (follow-up), skrývači zaškrtávátko skrytého úkolu. */
 export default function NewTaskDialog({
   wsId,
   userId,
@@ -41,8 +38,11 @@ export default function NewTaskDialog({
   const supabase = createClient();
   const [title, setTitle] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
-  // řešitel: "u:<userId>" (člen) nebo "c:<contactId>" (duch); null = bez řešitele
-  const [assignee, setAssignee] = useState<string | null>(`u:${userId}`);
+  // řešitel a follow-up jako PersonRef ("u:<userId>" | "c:<contactId>")
+  const [assignee, setAssignee] = useState<PersonRef | null>(`u:${userId}`);
+  const [waitSel, setWaitSel] = useState<PersonRef | null>(null);
+  const [assignToo, setAssignToo] = useState(false);
+  const [isPrivate, setIsPrivate] = useState(false);
   const [dueDate, setDueDate] = useState("");
   const [priority, setPriority] = useState(4);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -51,10 +51,6 @@ export default function NewTaskDialog({
   const [grants, setGrants] = useState<Set<string>>(new Set());
   const [projectMembers, setProjectMembers] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
-  // follow-up „čekám na": vybraný cíl + „zadat mu to i jako úkol"
-  const [waitSel, setWaitSel] = useState<WaitTarget | null>(null);
-  const [assignToo, setAssignToo] = useState(false);
-  const [isPrivate, setIsPrivate] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -96,7 +92,7 @@ export default function NewTaskDialog({
       setContacts((contactRes.data as Contact[]) ?? []);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsId, userId, canDelegate]);
+  }, [wsId, userId]);
 
   // členy projektu potřebujeme pro omezení řešitelů u neadmina
   useEffect(() => {
@@ -131,85 +127,16 @@ export default function NewTaskDialog({
             m.role === "admin"
         );
   const assignable = candidates.filter((m) => canManage(m.user_id));
-  const memberName = (m: Membership) =>
-    m.profiles?.full_name || m.profiles?.email || "?";
 
-  // rozklad řešitele na člena/ducha
-  const assigneeMember = assignee?.startsWith("u:") ? assignee.slice(2) : null;
-  const assigneeGhost = assignee?.startsWith("c:") ? assignee.slice(2) : null;
-
-  // ---------------------------------------------------------------- čekám na
-
-  /** id z pickeru: "u:<userId>" / "c:<contactId>" / null = zrušit. */
-  function pickWait(id: string | null) {
-    setAssignToo(false);
-    if (!id) {
-      setWaitSel(null);
-      return;
-    }
-    const raw = id.slice(2);
-    if (id.startsWith("u:")) {
-      const m = members.find((x) => x.user_id === raw);
-      if (m) setWaitSel({ kind: "u", id: raw, name: memberName(m) });
-    } else {
-      const c = contacts.find((x) => x.id === raw);
-      if (c) setWaitSel({ kind: "c", id: raw, name: c.name });
-    }
-  }
-
-  /** Založí ducha a přidá ho do lokálního seznamu kontaktů. */
-  async function createContact(name: string): Promise<Contact | null> {
-    const { data, error } = await supabase
-      .from("contacts")
-      .insert({ workspace_id: wsId, name, created_by: userId })
-      .select("id")
-      .single();
-    if (error || !data) {
-      toast("Kontakt se nepodařilo založit.", "error");
-      return null;
-    }
-    const contact = {
-      id: data.id as string,
-      workspace_id: wsId,
-      name,
-      email: "",
-      note: "",
-      created_by: userId,
-      created_at: "",
-    } as Contact;
+  function addContact(contact: Contact) {
     setContacts((prev) =>
       [...prev, contact].sort((a, b) => a.name.localeCompare(b.name, "cs"))
     );
-    return contact;
   }
 
-  /** „➕ založit kontakt" z pickeru Čekám na — založí ho hned a vybere. */
-  async function createContactAndPick(name: string) {
-    const contact = await createContact(name);
-    if (!contact) return;
+  function pickWait(ref: PersonRef | null) {
     setAssignToo(false);
-    setWaitSel({ kind: "c", id: contact.id, name });
-  }
-
-  /** Follow-up přepínač u cizího řešitele (člen i duch): čekám na = řešitel. */
-  function toggleFollowUpOnAssignee(on: boolean) {
-    if (!on) {
-      setWaitSel(null);
-      return;
-    }
-    if (assigneeMember) {
-      const m = members.find((x) => x.user_id === assigneeMember);
-      if (m) setWaitSel({ kind: "u", id: m.user_id, name: memberName(m) });
-    } else if (assigneeGhost) {
-      const c = contacts.find((x) => x.id === assigneeGhost);
-      if (c) setWaitSel({ kind: "c", id: c.id, name: c.name });
-    }
-  }
-
-  /** „➕ založit kontakt" z pickeru řešitelů — založí ducha a vybere ho. */
-  async function createGhostAndAssign(name: string) {
-    const contact = await createContact(name);
-    if (contact) setAssignee(`c:${contact.id}`);
+    setWaitSel(ref);
   }
 
   // ---------------------------------------------------------------- uložení
@@ -268,47 +195,44 @@ export default function NewTaskDialog({
 
     // řešitelé: vybraný + případně čekaný („zadat mu to i jako úkol");
     // členové → task_assignees (+ notifikace), duchové → task_contact_assignees
-    const memberIds = new Set<string>();
-    const ghostIds = new Set<string>();
-    if (assigneeMember) memberIds.add(assigneeMember);
-    if (assigneeGhost) ghostIds.add(assigneeGhost);
-    if (assignToo && waitSel) {
-      if (waitSel.kind === "u") memberIds.add(waitSel.id);
-      else ghostIds.add(waitSel.id);
-    }
+    const refs = new Set<PersonRef>();
+    if (assignee) refs.add(assignee);
+    if (assignToo && waitSel) refs.add(waitSel);
 
-    for (const uid of memberIds) {
-      // řešitel musí být člen projektu (RLS) — admin nečlena rovnou doplní
-      if (projectId && isAdmin && !projectMembers.has(uid)) {
-        await supabase
-          .from("project_members")
-          .upsert(
-            { project_id: projectId, user_id: uid },
-            { onConflict: "project_id,user_id", ignoreDuplicates: true }
-          );
+    for (const ref of refs) {
+      const id = personRefId(ref);
+      if (isMemberRef(ref)) {
+        // řešitel musí být člen projektu (RLS) — admin nečlena rovnou doplní
+        if (projectId && isAdmin && !projectMembers.has(id)) {
+          await supabase
+            .from("project_members")
+            .upsert(
+              { project_id: projectId, user_id: id },
+              { onConflict: "project_id,user_id", ignoreDuplicates: true }
+            );
+        }
+        const { error: taError } = await supabase
+          .from("task_assignees")
+          .insert({ task_id: created.id, user_id: id });
+        if (taError) toast("Řešitele se nepodařilo přiřadit.", "error");
+      } else {
+        const { error: tcaError } = await supabase
+          .from("task_contact_assignees")
+          .insert({ task_id: created.id, contact_id: id });
+        if (tcaError) toast("Ducha se nepodařilo přiřadit.", "error");
       }
-      const { error: taError } = await supabase
-        .from("task_assignees")
-        .insert({ task_id: created.id, user_id: uid });
-      if (taError) toast("Řešitele se nepodařilo přiřadit.", "error");
     }
-    if (memberIds.size > 0) pingNotifyEmails();
-
-    for (const cid of ghostIds) {
-      const { error: tcaError } = await supabase
-        .from("task_contact_assignees")
-        .insert({ task_id: created.id, contact_id: cid });
-      if (tcaError) toast("Ducha se nepodařilo přiřadit.", "error");
-    }
+    if ([...refs].some(isMemberRef)) pingNotifyEmails();
 
     // follow-up: čekám na člena / kontakt
     if (canDelegate && waitSel) {
+      const id = personRefId(waitSel);
       const { error: fuError } = await supabase.from("task_followups").insert({
         task_id: created.id,
         workspace_id: wsId,
         created_by: userId,
-        waiting_user_id: waitSel.kind === "u" ? waitSel.id : null,
-        waiting_contact_id: waitSel.kind === "c" ? waitSel.id : null,
+        waiting_user_id: isMemberRef(waitSel) ? id : null,
+        waiting_contact_id: isMemberRef(waitSel) ? null : id,
       });
       if (fuError) toast("Follow-up se nepodařilo nastavit.", "error");
     }
@@ -358,31 +282,19 @@ export default function NewTaskDialog({
             value={projectId}
             onChange={setProjectId}
             align="left"
+            alwaysSearch
           />
-          <Picker
-            options={[
-              { id: null, label: "Bez řešitele" },
-              ...assignable.map((m) => ({
-                id: `u:${m.user_id}` as string | null,
-                label:
-                  m.user_id === userId
-                    ? `${memberName(m)} (já)`
-                    : memberName(m),
-              })),
-              ...contacts.map((c) => ({
-                id: `c:${c.id}` as string | null,
-                label: `👻 ${c.name}`,
-              })),
-            ]}
+          <PersonPicker
+            wsId={wsId}
+            userId={userId}
+            members={assignable}
+            contacts={contacts}
             value={assignee}
             onChange={setAssignee}
+            onContactCreated={addContact}
+            noneLabel="Bez řešitele"
             placeholder="Řešitel"
-            iconPath={USER_ICON}
             ariaLabel="Řešitel"
-            align="left"
-            alwaysSearch
-            onCreate={createGhostAndAssign}
-            createLabel="založit kontakt"
           />
         </div>
 
@@ -391,34 +303,24 @@ export default function NewTaskDialog({
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-ink-soft">⏳ Čekám na</span>
-              <Picker
-                options={[
-                  { id: null, label: "— nikdo —" },
-                  ...members
-                    .filter((m) => m.user_id !== userId)
-                    .map((m) => ({
-                      id: `u:${m.user_id}` as string | null,
-                      label: `👤 ${memberName(m)}`,
-                    })),
-                  ...contacts.map((c) => ({
-                    id: `c:${c.id}` as string | null,
-                    label: `👻 ${c.name}`,
-                  })),
-                ]}
-                value={waitSel ? `${waitSel.kind}:${waitSel.id}` : null}
+              <PersonPicker
+                wsId={wsId}
+                userId={userId}
+                members={members}
+                contacts={contacts}
+                value={waitSel}
                 onChange={pickWait}
+                onContactCreated={addContact}
+                includeMe={false}
+                noneLabel="— nikdo —"
                 placeholder="nikdo (nepovinné)"
-                iconPath={HOURGLASS_ICON}
                 ariaLabel="Čekám na"
-                align="left"
-                alwaysSearch
-                onCreate={createContactAndPick}
-                createLabel="založit kontakt"
+                iconPath={HOURGLASS_ICON}
               />
             </div>
 
             {/* čekaný člověk zatím není řešitel → nabídni zadání */}
-            {waitSel && `${waitSel.kind}:${waitSel.id}` !== assignee && (
+            {waitSel && waitSel !== assignee && (
               <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-soft">
                 <input
                   type="checkbox"
@@ -426,7 +328,7 @@ export default function NewTaskDialog({
                   onChange={(e) => setAssignToo(e.target.checked)}
                   className="h-3.5 w-3.5"
                 />
-                {waitSel.kind === "u"
+                {isMemberRef(waitSel)
                   ? "zadat mu to i jako úkol (uvidí ho a dostane upozornění)"
                   : "přidat ho i jako řešitele (jen evidence, duch nic nevidí)"}
               </label>
@@ -438,7 +340,7 @@ export default function NewTaskDialog({
                 <input
                   type="checkbox"
                   checked={false}
-                  onChange={(e) => toggleFollowUpOnAssignee(e.target.checked)}
+                  onChange={(e) => setWaitSel(e.target.checked ? assignee : null)}
                   className="h-3.5 w-3.5"
                 />
                 Follow-up — pohlídat dodání na stránce Čekám na

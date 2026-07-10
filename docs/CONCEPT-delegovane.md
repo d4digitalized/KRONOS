@@ -29,6 +29,14 @@ je to evidence „kdo to dělá", odškrtává za něj zadavatel. Duchové se
 nabízejí v pickerech řešitele (dialog, Inbox, karta) s 👻 a zakládají se
 rovnou z nabídky.
 
+**Jednotné ovládání (3. kolo):** všechna zadávání lidí a projektů jedním
+vzorem — kombobox (chip → hledání → „➕ založit"). `PersonPicker` (členové
+👤 → duchové 👻 → založit kontakt; refs "u:/c:") sdílený v dialogu, Inboxu,
+kartě i Task force; `ProjectPicker` s hledáním a „➕ založit projekt"
+(admin) všude včetně hlavičky karty. Na kartě platí vzor „přiřazení =
+chipy (klik odebere), přidání = kombobox". Rychlé zadání v Task force nově
+umí i úkol bez projektu.
+
 **Pojmenování stránek (3. kolo):** „Delegované" → **„Čekám na"** (routa
 /delegated zůstává). „Úkoly" → **„Task force"**: úkoly mého týmu = moje +
 lidí, kterým smím zadávat (assign_grants); admin vidí všechny. Stránku

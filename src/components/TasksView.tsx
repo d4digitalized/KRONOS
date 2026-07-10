@@ -11,15 +11,16 @@ import { fmtDate } from "@/lib/format";
 import { cacheGet, cacheSet } from "@/lib/viewCache";
 import { TASKS_CHANGED_EVENT } from "@/lib/tasksChanged";
 import ProjectPicker, { ProjectDot } from "@/components/ProjectPicker";
-import Picker from "@/components/Picker";
+import PersonPicker, {
+  isMemberRef,
+  personRefId,
+  type PersonRef,
+} from "@/components/PersonPicker";
 import Avatar from "@/components/Avatar";
-import type { Membership, Project, Task } from "@/lib/types";
+import type { Contact, Membership, Project, Task } from "@/lib/types";
 
 // Modal karty se dogeneruje až při otevření (mimo základní bundle routy).
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
-
-const USER_ICON =
-  "M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
 
 type Status = "active" | "done" | "all";
 
@@ -53,8 +54,9 @@ export default function TasksView({
   // zadání nového úkolu (admin)
   const [addTitle, setAddTitle] = useState("");
   const [addProject, setAddProject] = useState("");
-  const [addAssignee, setAddAssignee] = useState<string | null>(null);
+  const [addAssignee, setAddAssignee] = useState<PersonRef | null>(null);
   const [addProjMembers, setAddProjMembers] = useState<Set<string>>(new Set());
+  const [contacts, setContacts] = useState<Contact[]>([]);
   // filtry
   const [fText, setFText] = useState("");
   const [fProject, setFProject] = useState("");
@@ -63,7 +65,7 @@ export default function TasksView({
   const [fStatus, setFStatus] = useState<Status>("active");
 
   const load = useCallback(async () => {
-    const [taskRes, projRes, memRes, taRes, grantRes] = await Promise.all([
+    const [taskRes, projRes, memRes, taRes, grantRes, contactRes] = await Promise.all([
       supabase
         .from("tasks")
         .select("*, projects(name, position), board_columns(name)")
@@ -91,6 +93,7 @@ export default function TasksView({
         .select("target_id")
         .eq("workspace_id", wsId)
         .eq("user_id", userId),
+      supabase.from("contacts").select("*").eq("workspace_id", wsId).order("name"),
     ]);
     const nextTasks = (taskRes.data as Task[]) ?? [];
     const nextProjects = (projRes.data as Project[]) ?? [];
@@ -104,6 +107,7 @@ export default function TasksView({
     setMembers(nextMembers);
     setAssignees(byTask);
     setGrants(new Set((grantRes.data ?? []).map((r) => r.target_id as string)));
+    setContacts((contactRes.data as Contact[]) ?? []);
     cacheSet(cacheKey, {
       tasks: nextTasks,
       projects: nextProjects,
@@ -121,11 +125,11 @@ export default function TasksView({
     return () => window.removeEventListener(TASKS_CHANGED_EVENT, onChanged);
   }, [load]);
 
-  // řešitelem smí být jen člen zvoleného projektu (nebo admin ws)
+  // členským řešitelem smí být jen člen zvoleného projektu (nebo admin ws);
+  // bez projektu kdokoli, duchové vždy
   useEffect(() => {
     if (!addProject) {
       setAddProjMembers(new Set());
-      setAddAssignee(null);
       return;
     }
     supabase
@@ -136,51 +140,76 @@ export default function TasksView({
         const ids = new Set((data ?? []).map((r) => r.user_id as string));
         setAddProjMembers(ids);
         setAddAssignee((prev) => {
-          if (!prev) return prev;
+          if (!prev || !isMemberRef(prev)) return prev;
+          const id = personRefId(prev);
           const stillOk =
-            ids.has(prev) ||
-            members.find((m) => m.user_id === prev)?.role === "admin";
+            ids.has(id) || members.find((m) => m.user_id === id)?.role === "admin";
           return stillOk ? prev : null;
         });
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addProject]);
 
-  const addAssignable = members.filter(
-    (m) => addProjMembers.has(m.user_id) || m.role === "admin"
-  );
+  const addAssignable = !addProject
+    ? members
+    : members.filter((m) => addProjMembers.has(m.user_id) || m.role === "admin");
+
+  /** Nový duch z „➕ založit" v PersonPickeru — jen doplnit do seznamu. */
+  function addContact(contact: Contact) {
+    setContacts((prev) =>
+      [...prev, contact].sort((a, b) => a.name.localeCompare(b.name, "cs"))
+    );
+  }
+
+  /** „➕ založit projekt" z pickeru rychlého zadání (jen admin — RLS). */
+  async function createProjectAndPick(name: string) {
+    const { data, error } = await supabase
+      .from("projects")
+      .insert({ workspace_id: wsId, name })
+      .select("id")
+      .single();
+    if (error || !data) {
+      toast("Projekt se nepodařilo založit.", "error");
+      return;
+    }
+    setAddProject(data.id as string);
+    load();
+  }
 
   async function addTask(e: React.FormEvent) {
     e.preventDefault();
     const title = addTitle.trim();
     if (!title) return;
-    if (!addProject) {
-      toast("Vyber projekt úkolu.", "error");
-      return;
+    // projektový úkol jde na konec prvního sloupce nástěnky projektu;
+    // bez projektu žije mimo nástěnky (stejná logika jako Nový úkol / Inbox)
+    let columnId: string | null = null;
+    let position = 0;
+    if (addProject) {
+      const { data: col } = await supabase
+        .from("board_columns")
+        .select("id")
+        .eq("project_id", addProject)
+        .order("position")
+        .limit(1)
+        .maybeSingle();
+      const { data: last } = await supabase
+        .from("tasks")
+        .select("position")
+        .eq("project_id", addProject)
+        .order("position", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      columnId = col?.id ?? null;
+      position = posBetween(last?.position, undefined);
     }
-    // úkol jde na konec prvního sloupce nástěnky projektu
-    const { data: col } = await supabase
-      .from("board_columns")
-      .select("id")
-      .eq("project_id", addProject)
-      .order("position")
-      .limit(1)
-      .maybeSingle();
-    const { data: last } = await supabase
-      .from("tasks")
-      .select("position")
-      .eq("project_id", addProject)
-      .order("position", { ascending: false })
-      .limit(1)
-      .maybeSingle();
     const { data: created, error } = await supabase
       .from("tasks")
       .insert({
         workspace_id: wsId,
-        project_id: addProject,
-        column_id: col?.id ?? null,
+        project_id: addProject || null,
+        column_id: columnId,
         title,
-        position: posBetween(last?.position, undefined),
+        position,
       })
       .select("id")
       .single();
@@ -189,11 +218,16 @@ export default function TasksView({
       return;
     }
     if (addAssignee) {
-      const { error: taError } = await supabase
-        .from("task_assignees")
-        .insert({ task_id: created.id, user_id: addAssignee });
-      if (taError) toast("Řešitele se nepodařilo přiřadit.", "error");
-      else pingNotifyEmails();
+      const id = personRefId(addAssignee);
+      const { error: aError } = isMemberRef(addAssignee)
+        ? await supabase
+            .from("task_assignees")
+            .insert({ task_id: created.id, user_id: id })
+        : await supabase
+            .from("task_contact_assignees")
+            .insert({ task_id: created.id, contact_id: id });
+      if (aError) toast("Řešitele se nepodařilo přiřadit.", "error");
+      else if (isMemberRef(addAssignee)) pingNotifyEmails();
     }
     setAddTitle("");
     load();
@@ -327,22 +361,20 @@ export default function TasksView({
             value={addProject || null}
             onChange={(id) => setAddProject(id ?? "")}
             align="left"
+            alwaysSearch
+            onCreate={createProjectAndPick}
           />
-          <Picker
-            options={[
-              { id: null, label: "Bez řešitele" },
-              ...addAssignable.map((m) => ({
-                id: m.user_id as string | null,
-                label: m.profiles?.full_name || m.profiles?.email || "?",
-              })),
-            ]}
+          <PersonPicker
+            wsId={wsId}
+            userId={userId}
+            members={addAssignable}
+            contacts={contacts}
             value={addAssignee}
             onChange={setAddAssignee}
+            onContactCreated={addContact}
+            noneLabel="Bez řešitele"
             placeholder="Řešitel"
-            iconPath={USER_ICON}
             ariaLabel="Řešitel"
-            align="left"
-            disabled={!addProject}
           />
           <button type="submit" className="btn-primary">
             Přidat úkol

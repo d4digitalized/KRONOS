@@ -7,7 +7,8 @@
       "Bash(nslookup -type=TXT resend._domainkey.digitalized.cz 8.8.8.8)",
       "Bash(nslookup -type=MX send.digitalized.cz 8.8.8.8)",
       "Bash(nslookup -type=TXT send.digitalized.cz 8.8.8.8)",
-      "Bash(node _fix-email.mjs)"
+      "Bash(node _fix-email.mjs)",
+      "PowerShell($env:SUPABASE_SERVICE_ROLE_KEY = \\(Get-Content .env.local | Where-Object { $_ -match '^SUPABASE_SERVICE_ROLE_KEY=' }\\) -replace '^SUPABASE_SERVICE_ROLE_KEY=',''; node \"C:\\\\Users\\\\Jan\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--dev-060-DIGITALIZED-Toggled\\\\caa29f38-8737-42af-8168-cbbcdad04d13\\\\scratchpad\\\\create-user.mjs\")"
     ]
   }
 }
