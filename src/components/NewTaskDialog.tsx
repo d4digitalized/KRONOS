@@ -45,8 +45,8 @@ export default function NewTaskDialog({
   const [title, setTitle] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
   // řešitel a follow-up jako PersonRef ("u:<userId>" | "c:<contactId>");
-  // výchozí nikdo — holý úkol (jen text) spadne do Inboxu k pozdějšímu třídění
-  const [assignee, setAssignee] = useState<PersonRef | null>(null);
+  // výchozí řešitel = já (dá se přepnout na „Bez řešitele" → úkol jde do Inboxu)
+  const [assignee, setAssignee] = useState<PersonRef | null>(`u:${userId}`);
   const [waitSel, setWaitSel] = useState<PersonRef | null>(null);
   const [assignToo, setAssignToo] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
@@ -111,7 +111,7 @@ export default function NewTaskDialog({
     if (id === activeWs) return;
     setActiveWs(id);
     setProjectId(null);
-    setAssignee(null);
+    setAssignee(`u:${userId}`);
     setWaitSel(null);
     setAssignToo(false);
     setIsPrivate(false);

@@ -153,9 +153,11 @@ export default function TaskRow({
         </span>
       )}
       {actions && (
+        // na mobilu akce padají na vlastní řádek (w-full) — jinak by řádkové
+        // pickery smáčkly titul skoro na nulu a úkol nešel ťuknutím otevřít
         <div
           onClick={(e) => e.stopPropagation()}
-          className="flex items-center gap-1.5"
+          className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap"
         >
           {actions}
         </div>

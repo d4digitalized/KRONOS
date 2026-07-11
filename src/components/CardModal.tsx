@@ -57,6 +57,8 @@ function activityText(a: TaskActivity): string {
       return `nastavil/a čekání na ${(m.who as string) ?? "?"}`;
     case "followup_cleared":
       return `zrušil/a čekání na ${(m.who as string) ?? "?"}`;
+    case "lead_changed":
+      return to ? `nastavil/a vedoucího ${to}` : "zrušil/a vedoucího";
     default:
       return "upravil/a kartu";
   }
@@ -109,6 +111,7 @@ export default function CardModal({
   const [projects, setProjects] = useState<Project[]>([]);
   const [assignees, setAssignees] = useState<Set<string>>(new Set());
   const [ghostAssignees, setGhostAssignees] = useState<Set<string>>(new Set());
+  const [leadId, setLeadId] = useState<string | null>(task.lead_id ?? null);
   const [projectMembers, setProjectMembers] = useState<Set<string>>(new Set());
   const [grants, setGrants] = useState<Set<string>>(new Set());
   const [dueDate, setDueDate] = useState(task.due_date ?? "");
@@ -341,6 +344,23 @@ export default function CardModal({
     }
     loadActivity();
     notifyTasksChanged(); // úkol se přesouvá v „Moje úkoly" nového řešitele
+  }
+
+  // Vedoucí úkolu (jen admin) — interní člen, který má na starost splnění.
+  async function setLead(ref: string | null) {
+    const memberId = ref && isMemberRef(ref) ? personRefId(ref) : null;
+    const prev = leadId;
+    setLeadId(memberId);
+    const { error } = await supabase
+      .from("tasks")
+      .update({ lead_id: memberId })
+      .eq("id", task.id);
+    if (error) {
+      toast("Změna vedoucího se nezdařila.", "error");
+      setLeadId(prev);
+      return;
+    }
+    loadActivity();
   }
 
   // ---------------------------------------------------------------- follow-up
@@ -751,6 +771,41 @@ export default function CardModal({
             <span className="text-xs text-ink-soft/50">nikdo</span>
           )}
         </div>
+
+        {/* vedoucí — nastavuje jen admin; ostatní jen vidí, kdo úkol vede */}
+        {(isAdmin || leadId) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-ink-soft/70">Vedoucí:</span>
+            {isAdmin ? (
+              <PersonPicker
+                wsId={task.workspace_id}
+                userId={userId}
+                members={members}
+                contacts={contacts}
+                value={leadId ? `u:${leadId}` : null}
+                onChange={setLead}
+                allowGhosts={false}
+                noneLabel="— nikdo —"
+                placeholder="+ vedoucí"
+                ariaLabel="Vedoucí"
+              />
+            ) : (
+              (() => {
+                const m = members.find((x) => x.user_id === leadId);
+                const name = m?.profiles?.full_name || m?.profiles?.email || "?";
+                return (
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full bg-ink-soft/15 py-0.5 pl-0.5 pr-2 text-xs"
+                    title="Vedoucího úkolu nastavuje admin"
+                  >
+                    <Avatar profile={m?.profiles} colorKey={leadId!} size="xs" />
+                    {name}
+                  </span>
+                );
+              })()
+            )}
+          </div>
+        )}
 
         {/* follow-up: úkol čeká na dodání členem či externím kontaktem;
             nastavují jen delegátoři (admin / can_delegate), chip vidí všichni */}

@@ -79,6 +79,8 @@ export type Task = {
   recurrence: Recurrence | null;
   /** skrytý úkol — vidí ho jen autor (ani admin ne) */
   is_private?: boolean;
+  /** vedoucí úkolu (interní člen); nastavuje jen admin */
+  lead_id?: string | null;
   projects?: { name: string; position?: number };
   board_columns?: { name: string } | null;
 };
@@ -185,7 +187,8 @@ export type TaskActivityKind =
   | "assigned"
   | "unassigned"
   | "followup_set"
-  | "followup_cleared";
+  | "followup_cleared"
+  | "lead_changed";
 
 export type TaskActivity = {
   id: string;
