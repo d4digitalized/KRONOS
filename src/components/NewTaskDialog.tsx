@@ -47,6 +47,8 @@ export default function NewTaskDialog({
   // řešitel a follow-up jako PersonRef ("u:<userId>" | "c:<contactId>");
   // výchozí řešitel = já (dá se přepnout na „Bez řešitele" → úkol jde do Inboxu)
   const [assignee, setAssignee] = useState<PersonRef | null>(`u:${userId}`);
+  // vedoucí úkolu — nastavuje jen admin (hlídá i DB trigger)
+  const [lead, setLead] = useState<PersonRef | null>(null);
   const [waitSel, setWaitSel] = useState<PersonRef | null>(null);
   const [assignToo, setAssignToo] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
@@ -112,6 +114,7 @@ export default function NewTaskDialog({
     setActiveWs(id);
     setProjectId(null);
     setAssignee(`u:${userId}`);
+    setLead(null);
     setWaitSel(null);
     setAssignToo(false);
     setIsPrivate(false);
@@ -211,6 +214,7 @@ export default function NewTaskDialog({
         priority,
         position,
         is_private: isPrivate,
+        lead_id: isAdmin && lead && isMemberRef(lead) ? personRefId(lead) : null,
       })
       .select("id")
       .single();
@@ -344,6 +348,24 @@ export default function NewTaskDialog({
             placeholder="Řešitel"
             ariaLabel="Řešitel"
           />
+          {/* vedoucí — jen admin; člen ho nastavit nesmí (DB trigger) */}
+          {isAdmin && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm text-ink-soft">Vedoucí</span>
+              <PersonPicker
+                wsId={activeWs}
+                userId={userId}
+                members={members}
+                contacts={contacts}
+                value={lead}
+                onChange={setLead}
+                allowGhosts={false}
+                noneLabel="— nikdo —"
+                placeholder="nikdo (nepovinné)"
+                ariaLabel="Vedoucí"
+              />
+            </div>
+          )}
         </div>
 
         {/* follow-up: koho dodávku hlídám (nezávislé na řešiteli) */}
