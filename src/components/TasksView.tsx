@@ -130,6 +130,14 @@ export default function TasksView({
     ? members
     : members.filter((m) => team.has(m.user_id));
   const visible = tasks
+    // Inbox je soukromý: úkol bez projektu a bez řešitele patří jen svému
+    // autorovi — ani admin ho tady nevidí (má ho autor v Inboxu).
+    .filter(
+      (t) =>
+        t.project_id !== null ||
+        t.created_by === userId ||
+        (assignees[t.id] ?? []).length > 0
+    )
     .filter((t) =>
       isAdmin ? true : (assignees[t.id] ?? []).some((id) => team.has(id))
     )
