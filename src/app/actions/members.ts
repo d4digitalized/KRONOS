@@ -172,12 +172,13 @@ export async function setMemberNotifyEmail(
 }
 
 /** Přepne členovi per-firma flag: delegaci úkolů („Čekám na", Delegované),
-    skryté úkoly (adminům je aplikace dává vždy bez ohledu na flag), nebo
-    e-mailové notifikace (notify_enabled). Jen admin workspace. */
+    skryté úkoly (adminům je aplikace dává vždy bez ohledu na flag),
+    e-mailové notifikace (notify_enabled), nebo HR (výkazy přidělených lidí).
+    Jen admin workspace. */
 export async function setMemberFlag(
   wsId: string,
   userId: string,
-  flag: "can_delegate" | "can_hide" | "notify_enabled",
+  flag: "can_delegate" | "can_hide" | "notify_enabled" | "can_hr",
   value: boolean
 ): Promise<{ ok?: true; error?: string }> {
   const supabase = await createClient();
@@ -198,6 +199,15 @@ export async function setMemberFlag(
     .eq("workspace_id", wsId)
     .eq("user_id", userId);
   if (error) return { error: "Uložení se nezdařilo." };
+
+  // vypnutí HR uklidí i granty — právo zmizí celé, ne jen naoko
+  if (flag === "can_hr" && !value) {
+    await admin
+      .from("hr_grants")
+      .delete()
+      .eq("workspace_id", wsId)
+      .eq("user_id", userId);
+  }
   return { ok: true };
 }
 

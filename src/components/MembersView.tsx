@@ -493,15 +493,19 @@ export default function MembersView({
                   initial={member.notify_enabled ?? true}
                   onSaved={load}
                 />
-                <AssignGrantsEditor
+                <GrantsEditor
                   wsId={wsId}
                   userId={member.user_id}
+                  table="assign_grants"
+                  title="Smí zadávat úkoly pro"
+                  hint="Sebe vždy; ostatní jen s tímto oprávněním."
+                  adminNote="Admin může zadávat úkoly komukoli."
                   isAdminMember={member.role === "admin"}
                   members={members}
                 />
                 {member.role === "admin" ? (
                   <p className="border-t border-line/50 bg-black/[.015] px-3 py-2 text-xs text-ink-soft/70">
-                    Admin může delegovat i skrývat úkoly vždy.
+                    Admin může delegovat, skrývat úkoly i vidět výkazy všech vždy.
                   </p>
                 ) : (
                   <>
@@ -523,6 +527,27 @@ export default function MembersView({
                       initial={member.can_hide ?? false}
                       onSaved={load}
                     />
+                    <MemberFlagToggle
+                      wsId={wsId}
+                      userId={member.user_id}
+                      flag="can_hr"
+                      title="HR"
+                      hint="Odemkne výkazy přidělených lidí v Přehledech včetně exportu do PDF (bez sazeb — ty vidí jen admin)."
+                      initial={member.can_hr ?? false}
+                      onSaved={load}
+                    />
+                    {member.can_hr && (
+                      <GrantsEditor
+                        wsId={wsId}
+                        userId={member.user_id}
+                        table="hr_grants"
+                        title="HR: vidí výkazy pro"
+                        hint="Výkazy vybraných lidí uvidí v Přehledech a vyexportuje do PDF."
+                        adminNote="Admin vidí výkazy všech."
+                        isAdminMember={false}
+                        members={members}
+                      />
+                    )}
                   </>
                 )}
               </>
@@ -610,7 +635,7 @@ function MemberFlagToggle({
 }: {
   wsId: string;
   userId: string;
-  flag: "can_delegate" | "can_hide" | "notify_enabled";
+  flag: "can_delegate" | "can_hide" | "notify_enabled" | "can_hr";
   title: string;
   hint: string;
   initial: boolean;
@@ -650,16 +675,24 @@ function MemberFlagToggle({
   );
 }
 
-/** Komu smí člen zadávat úkoly. Bez grantu přiřazuje jen sám sebe;
-    admin přiřazuje komukoli, proto se u něj editor nezobrazuje. */
-function AssignGrantsEditor({
+/** Obecný editor grantů user → target (assign_grants / hr_grants). Admin má
+    obě práva implicitně, proto se u něj místo editoru ukazuje poznámka. */
+function GrantsEditor({
   wsId,
   userId,
+  table,
+  title,
+  hint,
+  adminNote,
   isAdminMember,
   members,
 }: {
   wsId: string;
   userId: string;
+  table: "assign_grants" | "hr_grants";
+  title: string;
+  hint: string;
+  adminNote: string;
   isAdminMember: boolean;
   members: Membership[];
 }) {
@@ -668,12 +701,12 @@ function AssignGrantsEditor({
 
   const load = useCallback(async () => {
     const { data } = await supabase
-      .from("assign_grants")
+      .from(table)
       .select("target_id")
       .eq("workspace_id", wsId)
       .eq("user_id", userId);
     setTargets(new Set((data ?? []).map((r) => r.target_id as string)));
-  }, [supabase, wsId, userId]);
+  }, [supabase, wsId, userId, table]);
 
   useEffect(() => {
     if (!isAdminMember) load();
@@ -688,13 +721,13 @@ function AssignGrantsEditor({
     setTargets(next);
     const { error } = on
       ? await supabase
-          .from("assign_grants")
+          .from(table)
           .delete()
           .eq("workspace_id", wsId)
           .eq("user_id", userId)
           .eq("target_id", targetId)
       : await supabase
-          .from("assign_grants")
+          .from(table)
           .insert({ workspace_id: wsId, user_id: userId, target_id: targetId });
     if (error) {
       toast("Změna práva se nezdařila.", "error");
@@ -705,7 +738,7 @@ function AssignGrantsEditor({
   if (isAdminMember) {
     return (
       <p className="border-t border-line/50 bg-black/[.015] px-3 py-2 text-xs text-ink-soft/70">
-        Admin může zadávat úkoly komukoli.
+        {adminNote}
       </p>
     );
   }
@@ -714,10 +747,8 @@ function AssignGrantsEditor({
 
   return (
     <div className="border-t border-line/50 bg-black/[.015] px-3 py-3">
-      <p className="text-sm font-medium">Smí zadávat úkoly pro</p>
-      <p className="pb-1.5 text-xs text-ink-soft/70">
-        Sebe vždy; ostatní jen s tímto oprávněním.
-      </p>
+      <p className="text-sm font-medium">{title}</p>
+      <p className="pb-1.5 text-xs text-ink-soft/70">{hint}</p>
       {targets === null ? (
         <p className="text-sm text-ink-soft/70">Načítám…</p>
       ) : (

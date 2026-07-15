@@ -37,6 +37,8 @@ export type Membership = {
   can_delegate?: boolean;
   /** odemknuté skryté úkoly (is_private); adminům dáno vždy. Nastavuje admin. */
   can_hide?: boolean;
+  /** HR: vidí a exportuje výkazy lidí z hr_grants; adminům dáno vždy. Nastavuje admin. */
+  can_hr?: boolean;
   workspaces?: Workspace;
   profiles?: Profile;
 };

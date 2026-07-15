@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { requireWsMember } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
 import VykazView from "@/components/VykazView";
 
 export const metadata: Metadata = {
@@ -26,8 +27,27 @@ export default async function VykazPage({
   const { user, isAdmin } = await requireWsMember(ws);
 
   // Běžný člen si smí vytáhnout jen svůj výkaz a bez sazby (jen hodiny).
-  // Admin může kohokoli a se sazbou.
-  const userId = isAdmin ? userParam : user.id;
+  // Admin může kohokoli a se sazbou; HR své přidělené lidi (hr_grants), bez sazby.
+  let userId = isAdmin ? userParam : user.id;
+  if (!isAdmin && userParam !== user.id) {
+    const supabase = await createClient();
+    const [{ data: grant }, { data: me }] = await Promise.all([
+      supabase
+        .from("hr_grants")
+        .select("target_id")
+        .eq("workspace_id", ws)
+        .eq("user_id", user.id)
+        .eq("target_id", userParam)
+        .maybeSingle(),
+      supabase
+        .from("workspace_members")
+        .select("can_hr")
+        .eq("workspace_id", ws)
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
+    if (grant && me?.can_hr) userId = userParam;
+  }
 
   const rateRaw = Number(str(sp.rate));
   const rate =
