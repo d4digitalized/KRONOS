@@ -129,6 +129,11 @@ export default function TasksView({
   const teamMembers = isAdmin
     ? members
     : members.filter((m) => team.has(m.user_id));
+  const memberName = (m: Membership) =>
+    m.profiles?.full_name || m.profiles?.email || "?";
+  const switcherMembers = [...teamMembers].sort((a, b) =>
+    memberName(a).localeCompare(memberName(b), "cs")
+  );
   const visible = tasks
     // Inbox je soukromý: úkol bez projektu a bez řešitele patří jen svému
     // autorovi — ani admin ho tady nevidí (má ho autor v Inboxu).
@@ -219,21 +224,6 @@ export default function TasksView({
             </option>
           ))}
         </select>
-        {teamMembers.length > 1 && (
-          <select
-            value={fAssignee}
-            onChange={(e) => setFAssignee(e.target.value)}
-            aria-label="Filtr řešitele"
-            className="input px-2 py-1 text-sm"
-          >
-            <option value="">Řešitel: všichni</option>
-            {teamMembers.map((m) => (
-              <option key={m.user_id} value={m.user_id}>
-                {m.profiles?.full_name || m.profiles?.email}
-              </option>
-            ))}
-          </select>
-        )}
         <select
           value={fStatus}
           onChange={(e) => setFStatus(e.target.value as Status)}
@@ -245,6 +235,44 @@ export default function TasksView({
           <option value="all">Vše</option>
         </select>
       </div>
+
+      {/* přepínač lidí: kliknutím na avatar vidím, na čem kdo dělá */}
+      {switcherMembers.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            onClick={() => setFAssignee("")}
+            aria-pressed={!fAssignee}
+            className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+              !fAssignee
+                ? "border-transparent bg-accent text-white"
+                : "border-line text-ink-soft hover:border-ink-soft/40"
+            }`}
+          >
+            Všichni
+          </button>
+          {switcherMembers.map((m) => {
+            const on = fAssignee === m.user_id;
+            const name = memberName(m);
+            return (
+              <button
+                key={m.user_id}
+                onClick={() => setFAssignee(on ? "" : m.user_id)}
+                aria-pressed={on}
+                aria-label={`Na čem dělá ${name}`}
+                title={name}
+                className={`inline-flex items-center rounded-full border transition-colors ${
+                  on
+                    ? "gap-1.5 border-accent bg-accent-soft py-0.5 pl-0.5 pr-2 text-xs font-medium text-accent"
+                    : "border-transparent p-0.5 hover:border-line"
+                }`}
+              >
+                <Avatar profile={m.profiles} colorKey={m.user_id} size="md" />
+                {on && name}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {visible.length === 0 ? (
         <p className="panel p-6 text-center text-sm text-ink-soft/70">
