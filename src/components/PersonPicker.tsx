@@ -103,6 +103,15 @@ export default function PersonPicker({
     ...members
       .filter((m) => includeMe || m.user_id !== userId)
       .filter((m) => !excluded.has(`u:${m.user_id}`))
+      // „(já)" vždy jako první možnost, ostatní podle abecedy
+      .sort((a, b) => {
+        if (a.user_id === userId) return -1;
+        if (b.user_id === userId) return 1;
+        return (a.profiles?.full_name || a.profiles?.email || "").localeCompare(
+          b.profiles?.full_name || b.profiles?.email || "",
+          "cs"
+        );
+      })
       .map((m) => {
         const name = m.profiles?.full_name || m.profiles?.email || "?";
         return {
