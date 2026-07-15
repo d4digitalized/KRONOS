@@ -126,7 +126,7 @@ export default function TaskRow({
           {task.is_private && (
             <span
               className="ml-1 text-xs text-ink-soft/50"
-              title="Skrytý úkol — vidí ho jen autor a řešitelé"
+              title="Skrytý úkol — vidí ho jen jeho autor"
             >
               🔒
             </span>

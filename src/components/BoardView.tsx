@@ -59,11 +59,13 @@ export default function BoardView({
   projectId,
   projectName,
   userId,
+  isAdmin,
 }: {
   wsId: string;
   projectId: string;
   projectName: string;
   userId: string;
+  isAdmin: boolean;
 }) {
   const supabase = createClient();
   const [columns, setColumns] = useState<BoardColumn[]>([]);
@@ -100,7 +102,7 @@ export default function BoardView({
   );
 
   const load = useCallback(async () => {
-    const [colRes, taskRes, memRes, subRes, labelRes, tlRes, taRes, fuRes, gaRes] = await Promise.all([
+    const [colRes, taskRes, memRes, subRes, labelRes, tlRes, taRes, fuRes, gaRes, grantRes] = await Promise.all([
       supabase
         .from("board_columns")
         .select("*")
@@ -140,9 +142,14 @@ export default function BoardView({
         .from("task_contact_assignees")
         .select("task_id, contacts(id, name), tasks!inner(project_id)")
         .eq("tasks.project_id", projectId),
+      supabase
+        .from("assign_grants")
+        .select("target_id")
+        .eq("workspace_id", wsId)
+        .eq("user_id", userId),
     ]);
     const cols = (colRes.data as BoardColumn[]) ?? [];
-    const tasks = (taskRes.data as Task[]) ?? [];
+    const allTasks = (taskRes.data as Task[]) ?? [];
 
     const counts: Record<string, { done: number; total: number }> = {};
     for (const sub of subRes.data ?? []) {
@@ -198,6 +205,22 @@ export default function BoardView({
     }
     setCardGhosts(ghostsByTask);
 
+    // Nástěnka jako Task force: člen vidí jen úkoly svého týmu — svoje
+    // (autor/řešitel/vedoucí) a úkoly lidí, kterým smí zadávat (granty).
+    // Admin vidí celou nástěnku.
+    const team = new Set([
+      userId,
+      ...((grantRes.data ?? []).map((r) => r.target_id as string)),
+    ]);
+    const tasks = isAdmin
+      ? allTasks
+      : allTasks.filter(
+          (t) =>
+            t.created_by === userId ||
+            t.lead_id === userId ||
+            (assigneesByTask[t.id] ?? []).some((id) => team.has(id))
+        );
+
     const byCol: CardsByCol = {};
     const lost: Task[] = [];
     for (const col of cols) byCol[col.id] = [];
@@ -211,7 +234,7 @@ export default function BoardView({
     setOrphans(lost);
     setMembers(mems);
     setLoading(false);
-  }, [supabase, projectId, wsId]);
+  }, [supabase, projectId, wsId, userId, isAdmin]);
 
   useEffect(() => {
     load();

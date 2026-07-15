@@ -424,7 +424,7 @@ export default function NewTaskDialog({
           {canHide && (
             <label
               className="flex cursor-pointer items-center gap-1.5 text-sm text-ink-soft"
-              title="Skrytý úkol vidí jen autor a řešitelé — nikdo jiný, ani admin."
+              title="Skrytý úkol vidí jen jeho autor — řešitelé, ostatní ani admin ne. Nechodí z něj žádné notifikace."
             >
               <input
                 type="checkbox"

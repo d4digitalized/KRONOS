@@ -694,7 +694,7 @@ export default function CardModal({
           {isPrivate && (
             <span
               className="rounded-full bg-black/5 px-2 py-0.5 text-xs text-ink-soft"
-              title="Skrytý úkol — vidí ho jen autor a řešitelé."
+              title="Skrytý úkol — vidí ho jen jeho autor."
             >
               🔒 skrytý
             </span>
@@ -902,7 +902,7 @@ export default function CardModal({
           {canTogglePrivate && (
             <label
               className="flex cursor-pointer items-center gap-1.5 text-sm text-ink-soft"
-              title="Skrytý úkol vidí jen autor a řešitelé — nikdo jiný, ani admin."
+              title="Skrytý úkol vidí jen jeho autor — řešitelé, ostatní ani admin ne. Nechodí z něj žádné notifikace."
             >
               <input
                 type="checkbox"
