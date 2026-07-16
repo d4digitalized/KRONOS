@@ -57,7 +57,6 @@ export default function TasksView({
   const [fPriority, setFPriority] = useState(0);
   const [fAssignee, setFAssignee] = useState("");
   const [fGhost, setFGhost] = useState("");
-  const [ghostsOpen, setGhostsOpen] = useState(false);
   const [fStatus, setFStatus] = useState<Status>("active");
 
   const load = useCallback(async () => {
@@ -273,7 +272,7 @@ export default function TasksView({
       </div>
 
       {/* přepínač lidí: kliknutím na avatar vidím, na čem kdo dělá */}
-      {switcherMembers.length > 1 && (
+      {(switcherMembers.length > 1 || ghosts.length > 0) && (
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => {
@@ -313,52 +312,38 @@ export default function TasksView({
               </button>
             );
           })}
-        </div>
-      )}
-
-      {/* rozklikávací lišta duchů — externisté s aspoň jedním úkolem */}
-      {ghosts.length > 0 && (
-        <div className="space-y-1.5">
-          <button
-            onClick={() => setGhostsOpen((o) => !o)}
-            aria-expanded={ghostsOpen}
-            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors ${
-              fGhost
-                ? "border-accent bg-accent-soft font-medium text-accent"
-                : "border-line text-ink-soft hover:border-ink-soft/40"
-            }`}
-          >
-            👻{" "}
-            {fGhost
-              ? (contacts.find((c) => c.id === fGhost)?.name ?? "duch")
-              : `Duchové (${ghosts.length})`}
-            <span aria-hidden>{ghostsOpen ? "▴" : "▾"}</span>
-          </button>
-          {ghostsOpen && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {ghosts.map((c) => {
-                const on = fGhost === c.id;
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => {
-                      setFGhost(on ? "" : c.id);
-                      setFAssignee("");
-                    }}
-                    aria-pressed={on}
-                    aria-label={`Na čem dělá ${c.name}`}
-                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${
-                      on
-                        ? "border-accent bg-accent-soft font-medium text-accent"
-                        : "border-line text-ink-soft hover:border-ink-soft/40"
-                    }`}
-                  >
-                    👻 {c.name}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          {/* duchové (externisté s úkolem) hned za členy — stejné ovládání */}
+          {ghosts.map((c) => {
+            const on = fGhost === c.id;
+            return (
+              <button
+                key={c.id}
+                onClick={() => {
+                  setFGhost(on ? "" : c.id);
+                  setFAssignee("");
+                }}
+                aria-pressed={on}
+                aria-label={`Na čem dělá ${c.name}`}
+                title={`${c.name} (externí)`}
+                className={`inline-flex items-center rounded-full border transition-colors ${
+                  on
+                    ? "gap-1.5 border-accent bg-accent-soft py-0.5 pl-0.5 pr-2 text-xs font-medium text-accent"
+                    : "border-transparent p-0.5 hover:border-line"
+                }`}
+              >
+                <Avatar
+                  profile={{
+                    full_name: c.name,
+                    avatar_initials: c.avatar_initials || null,
+                    avatar_color: c.avatar_color || "#9ca3af",
+                  }}
+                  colorKey={c.id}
+                  size="md"
+                />
+                {on && c.name}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -385,6 +370,9 @@ export default function TasksView({
               const taskAssignees = (assignees[task.id] ?? [])
                 .map((id) => members.find((m) => m.user_id === id))
                 .filter((m): m is Membership => !!m);
+              const taskGhosts = (ghostAssignees[task.id] ?? [])
+                .map((id) => contacts.find((c) => c.id === id))
+                .filter((c): c is Contact => !!c);
               return (
                 <TaskRow
                   key={task.id}
@@ -393,22 +381,39 @@ export default function TasksView({
                   onToggleDone={toggleDone}
                   showProject={false}
                   meta={
-                    taskAssignees.length > 0 && (
-                      <span className="flex -space-x-1.5">
-                        {taskAssignees.slice(0, 4).map((m) => (
-                          <Avatar
+                    (taskAssignees.length > 0 || taskGhosts.length > 0) && (
+                      <span className="flex flex-wrap items-center justify-end gap-1.5">
+                        {taskAssignees.map((m) => (
+                          <span
                             key={m.user_id}
-                            profile={m.profiles}
-                            colorKey={m.user_id}
-                            size="sm"
-                            className="border border-surface"
-                          />
-                        ))}
-                        {taskAssignees.length > 4 && (
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-black/10 text-[9px] font-medium text-ink-soft">
-                            +{taskAssignees.length - 4}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-black/5 py-0.5 pl-0.5 pr-2 text-xs text-ink-soft"
+                          >
+                            <Avatar
+                              profile={m.profiles}
+                              colorKey={m.user_id}
+                              size="xs"
+                            />
+                            {memberName(m)}
                           </span>
-                        )}
+                        ))}
+                        {taskGhosts.map((c) => (
+                          <span
+                            key={c.id}
+                            title={`${c.name} (externí)`}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-black/5 py-0.5 pl-0.5 pr-2 text-xs text-ink-soft"
+                          >
+                            <Avatar
+                              profile={{
+                                full_name: c.name,
+                                avatar_initials: c.avatar_initials || null,
+                                avatar_color: c.avatar_color || "#9ca3af",
+                              }}
+                              colorKey={c.id}
+                              size="xs"
+                            />
+                            {c.name}
+                          </span>
+                        ))}
                       </span>
                     )
                   }
