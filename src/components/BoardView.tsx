@@ -204,7 +204,8 @@ export default function BoardView({
       const name = row.waiting_user_id
         ? member?.profiles?.full_name || member?.profiles?.email
         : contact?.name;
-      if (name) waitingByTask[row.task_id as string] = name;
+      // „—" = follow-up bez osoby (ruční přetažení do Waiting on)
+      waitingByTask[row.task_id as string] = name || "—";
     }
     setCardWaiting(waitingByTask);
 
@@ -384,6 +385,7 @@ export default function BoardView({
       setActiveCard(
         cards[colId ?? ""]?.find((t) => t.id === id) ??
           holdTasks.find((t) => t.id === id) ??
+          waitingTasks.find((t) => t.id === id) ??
           null
       );
     }
@@ -447,8 +449,8 @@ export default function BoardView({
       return;
     }
 
-    // puštění karty na automatický sloupec: Hold kartu uspí, Done dokončí,
-    // Waiting on se plní jen follow-upem z karty
+    // puštění karty na automatický sloupec: Waiting on založí follow-up
+    // (bez osoby), Hold kartu uspí, Done dokončí
     const dropTarget = isColId(overId)
       ? stripCol(overId)
       : holdTasks.some((t) => t.id === overId)
@@ -459,9 +461,33 @@ export default function BoardView({
             ? WAITING_COL
             : (findColumnOf(overId) ?? null);
     const fromHold = holdTasks.some((t) => t.id === activeId);
+    const fromWaiting = waitingTasks.some((t) => t.id === activeId);
+    const fromBoard = !!findColumnOf(activeId);
 
+    if (dropTarget === WAITING_COL) {
+      if (fromBoard || fromHold) {
+        // karta z Hold se probudí; follow-up (bez osoby) jen pokud už nemá
+        if (fromHold) {
+          await supabase.from("tasks").update({ on_hold: false }).eq("id", activeId);
+        }
+        const { error } = await supabase.from("task_followups").upsert(
+          {
+            task_id: activeId,
+            workspace_id: wsId,
+            created_by: userId,
+            waiting_user_id: null,
+            waiting_contact_id: null,
+          },
+          { onConflict: "task_id", ignoreDuplicates: true }
+        );
+        if (error) toast("Přesun do Waiting on se nezdařil.", "error");
+        else toast("Karta čeká — na kartě můžeš doplnit, na koho.");
+      }
+      load();
+      return;
+    }
     if (dropTarget === HOLD_COL) {
-      if (findColumnOf(activeId)) {
+      if (fromBoard || fromWaiting) {
         const { error } = await supabase
           .from("tasks")
           .update({ on_hold: true })
@@ -471,23 +497,8 @@ export default function BoardView({
       load();
       return;
     }
-    // probuzení: karta z Hold zpět do běžného sloupce
-    if (fromHold && dropTarget && !dropTarget.startsWith("__")) {
-      const list = cards[dropTarget] ?? [];
-      const { error } = await supabase
-        .from("tasks")
-        .update({
-          on_hold: false,
-          column_id: dropTarget,
-          position: posBetween(list[list.length - 1]?.position, undefined),
-        })
-        .eq("id", activeId);
-      if (error) toast("Probuzení karty se nezdařilo.", "error");
-      load();
-      return;
-    }
     if (dropTarget === DONE_COL) {
-      if (findColumnOf(activeId) || fromHold) {
+      if (fromBoard || fromHold || fromWaiting) {
         const { error } = await supabase
           .from("tasks")
           .update(
@@ -502,8 +513,22 @@ export default function BoardView({
       load();
       return;
     }
-    if (dropTarget === WAITING_COL) {
-      toast("Sem karty padají samy — otevři kartu a nastav „Čekám na“.");
+    // z automatického sloupce zpět do běžného: probuzení / zrušení čekání
+    if ((fromHold || fromWaiting) && dropTarget && !dropTarget.startsWith("__")) {
+      const list = cards[dropTarget] ?? [];
+      const position = posBetween(list[list.length - 1]?.position, undefined);
+      if (fromWaiting) {
+        await supabase.from("task_followups").delete().eq("task_id", activeId);
+      }
+      const { error } = await supabase
+        .from("tasks")
+        .update(
+          fromHold
+            ? { on_hold: false, column_id: dropTarget, position }
+            : { column_id: dropTarget, position }
+        )
+        .eq("id", activeId);
+      if (error) toast("Přesun karty se nezdařil.", "error");
       load();
       return;
     }
@@ -723,17 +748,17 @@ export default function BoardView({
 
           {/* automatické sloupce — má je každý projekt, plní se samy */}
           <VirtualColumn
-            dndId={colDndId(HOLD_COL)}
-            title="💤 Hold"
-            count={visible(holdTasks).length}
-            hint="Uspané karty — vidět jen tady na nástěnce, ne v Task force ani v Moje úkoly. Přetažením sem kartu uspíš, přetažením ven probudíš."
+            dndId={colDndId(WAITING_COL)}
+            title="⏳ Waiting on"
+            count={visible(waitingTasks).length}
+            hint="Karty s follow-upem („Čekám na“). Přetažením sem karta začne čekat (na koho doplníš na kartě), přetažením ven čekání zrušíš."
           >
             <SortableContext
-              items={visible(holdTasks).map((t) => t.id)}
+              items={visible(waitingTasks).map((t) => t.id)}
               strategy={verticalListSortingStrategy}
             >
               <div className="flex min-h-2 flex-col gap-2">
-                {visible(holdTasks).map((task) => (
+                {visible(waitingTasks).map((task) => (
                   <BoardCard
                     key={task.id}
                     task={task}
@@ -751,17 +776,17 @@ export default function BoardView({
             </SortableContext>
           </VirtualColumn>
           <VirtualColumn
-            dndId={colDndId(WAITING_COL)}
-            title="⏳ Waiting on"
-            count={visible(waitingTasks).length}
-            hint="Plní se automaticky kartami s follow-upem („Čekám na“ na kartě)."
+            dndId={colDndId(HOLD_COL)}
+            title="💤 Hold"
+            count={visible(holdTasks).length}
+            hint="Uspané karty — vidět jen tady na nástěnce, ne v Task force ani v Moje úkoly. Přetažením sem kartu uspíš, přetažením ven probudíš."
           >
             <SortableContext
-              items={visible(waitingTasks).map((t) => t.id)}
+              items={visible(holdTasks).map((t) => t.id)}
               strategy={verticalListSortingStrategy}
             >
               <div className="flex min-h-2 flex-col gap-2">
-                {visible(waitingTasks).map((task) => (
+                {visible(holdTasks).map((task) => (
                   <BoardCard
                     key={task.id}
                     task={task}

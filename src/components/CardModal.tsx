@@ -399,6 +399,12 @@ export default function CardModal({
     notifyTasksChanged();
   }
 
+  /** Doplnění osoby k čekání bez osoby (RLS nemá update → delete + insert). */
+  async function assignWaiting(value: string) {
+    await supabase.from("task_followups").delete().eq("task_id", task.id);
+    await startWaiting(value);
+  }
+
   /** Nový duch z „➕ založit" v PersonPickeru — jen doplnit do seznamu. */
   function addContact(contact: Contact) {
     setContacts((prev) =>
@@ -641,7 +647,9 @@ export default function CardModal({
   const waitingName = followup
     ? followup.waiting_user_id
       ? waitingMember?.profiles?.full_name || waitingMember?.profiles?.email || "člen"
-      : (followup.contacts?.name ?? "kontakt")
+      : followup.waiting_contact_id
+        ? (followup.contacts?.name ?? "kontakt")
+        : "—" // čekání bez osoby (ruční přetažení do Waiting on)
     : null;
   const followupSetter = followup
     ? members.find((m) => m.user_id === followup.created_by)
@@ -833,6 +841,24 @@ export default function CardModal({
                   })}
                 </span>
               </span>
+              {/* čekání bez osoby (přetažení do Waiting on) — doplnit, na koho */}
+              {!followup.waiting_user_id &&
+                !followup.waiting_contact_id &&
+                (canClearWaiting || canDelegate) && (
+                  <PersonPicker
+                    wsId={task.workspace_id}
+                    userId={userId}
+                    members={members}
+                    contacts={contacts}
+                    value={null}
+                    onChange={(ref) => ref && assignWaiting(ref)}
+                    onContactCreated={addContact}
+                    includeMe={false}
+                    placeholder="doplnit, na koho"
+                    ariaLabel="Doplnit, na koho se čeká"
+                    iconPath={HOURGLASS_ICON}
+                  />
+                )}
               {canClearWaiting && (
                 <button
                   onClick={stopWaiting}

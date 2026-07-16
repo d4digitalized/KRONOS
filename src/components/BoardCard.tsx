@@ -81,9 +81,10 @@ function BoardCard({
       {waitingOn && !isDone && (
         <span
           className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-800"
-          title={`Čeká na dodání: ${waitingOn}`}
+          title={waitingOn === "—" ? "Čeká na dodání" : `Čeká na dodání: ${waitingOn}`}
         >
-          ⏳ čeká na {waitingOn}
+          {/* „—" = follow-up bez určené osoby */}
+          ⏳ {waitingOn === "—" ? "čeká" : `čeká na ${waitingOn}`}
         </span>
       )}
       {labels.length > 0 && (

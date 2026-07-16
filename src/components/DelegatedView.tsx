@@ -75,12 +75,13 @@ export default function DelegatedView({
     return () => window.removeEventListener(TASKS_CHANGED_EVENT, onChanged);
   }, [load]);
 
-  function waitingName(row: TaskFollowup): string {
+  function waitingName(row: TaskFollowup): string | null {
     if (row.waiting_user_id) {
       const m = members.find((x) => x.user_id === row.waiting_user_id);
       return m?.profiles?.full_name || m?.profiles?.email || "člen";
     }
-    return row.contacts?.name ?? "kontakt";
+    if (row.waiting_contact_id) return row.contacts?.name ?? "kontakt";
+    return null; // čekání bez osoby (ruční přesun do Waiting on)
   }
 
   async function toggleDone(task: Task) {
@@ -140,7 +141,8 @@ export default function DelegatedView({
                         className="whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
                         title={`Follow-up od ${fmtDate(row.created_at.slice(0, 10))}`}
                       >
-                        ⏳ {waitingName(row)} · {waitingFor(row.created_at)}
+                        ⏳ {waitingName(row) ? `${waitingName(row)} · ` : ""}
+                        {waitingFor(row.created_at)}
                       </span>
                     )
                   }
