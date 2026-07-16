@@ -11,6 +11,7 @@ type DigestTask = {
   due_date: string;
   workspace_id: string;
   project_id: string;
+  on_hold?: boolean;
   projects: { name: string } | null;
 };
 
@@ -35,15 +36,15 @@ export async function GET(req: Request) {
   const today = new Date().toISOString().slice(0, 10);
   const { data } = await supabase
     .from("task_assignees")
-    .select(
-      "user_id, tasks!inner(id, title, due_date, workspace_id, project_id, completed_at, parent_id, is_private, projects(name))"
-    )
+    .select("user_id, tasks!inner(*, projects(name))")
     .is("tasks.completed_at", null)
     .is("tasks.parent_id", null)
     // skrytý úkol vidí jen autor — řešiteli se nesmí prozradit ani v digestu
     .eq("tasks.is_private", false)
     .lte("tasks.due_date", today);
-  const rows = (data ?? []) as unknown as { user_id: string; tasks: DigestTask }[];
+  const rows = (
+    (data ?? []) as unknown as { user_id: string; tasks: DigestTask }[]
+  ).filter((r) => !r.tasks.on_hold); // uspané karty (Hold) nepřipomínáme
   if (rows.length === 0) return NextResponse.json({ users: 0, sent: 0 });
 
   const byUser = new Map<string, DigestTask[]>();

@@ -45,7 +45,9 @@ type CardsByCol = Record<string, Task[]>;
 const COL_PREFIX = "col:";
 
 // Automatické (virtuální) sloupce na konci každé nástěnky — nejsou v DB.
-// Waiting on = otevřené karty s follow-upem, Done = dokončené karty.
+// Hold = uspané karty (flag on_hold), Waiting on = otevřené karty
+// s follow-upem, Done = dokončené karty.
+const HOLD_COL = "__hold";
 const WAITING_COL = "__waiting";
 const DONE_COL = "__done";
 
@@ -78,7 +80,8 @@ export default function BoardView({
   const [columns, setColumns] = useState<BoardColumn[]>([]);
   const [cards, setCards] = useState<CardsByCol>({});
   const [orphans, setOrphans] = useState<Task[]>([]);
-  // automatické sloupce: karty s follow-upem a hotové karty
+  // automatické sloupce: uspané karty, karty s follow-upem a hotové karty
+  const [holdTasks, setHoldTasks] = useState<Task[]>([]);
   const [waitingTasks, setWaitingTasks] = useState<Task[]>([]);
   const [doneTasks, setDoneTasks] = useState<Task[]>([]);
   const [members, setMembers] = useState<Membership[]>([]);
@@ -241,16 +244,20 @@ export default function BoardView({
             (assigneesByTask[t.id] ?? []).some((id) => team.has(id))
         );
 
-    // automatické sloupce: hotové karty → Done, otevřené s follow-upem →
-    // Waiting on; v běžných sloupcích zůstává jen zbytek
+    // automatické sloupce: hotové karty → Done, uspané → Hold, otevřené
+    // s follow-upem → Waiting on; v běžných sloupcích zůstává jen zbytek
     const done = tasks
       .filter((t) => t.completed_at)
       .sort((a, b) => (b.completed_at ?? "").localeCompare(a.completed_at ?? ""));
-    const waiting = tasks.filter((t) => !t.completed_at && waitingByTask[t.id]);
+    const hold = tasks.filter((t) => !t.completed_at && t.on_hold);
+    const waiting = tasks.filter(
+      (t) => !t.completed_at && !t.on_hold && waitingByTask[t.id]
+    );
     const boardTasks = tasks.filter(
-      (t) => !t.completed_at && !waitingByTask[t.id]
+      (t) => !t.completed_at && !t.on_hold && !waitingByTask[t.id]
     );
     setDoneTasks(done);
+    setHoldTasks(hold);
     setWaitingTasks(waiting);
 
     const byCol: CardsByCol = {};
@@ -374,7 +381,11 @@ export default function BoardView({
     const id = String(event.active.id);
     if (!isColId(id)) {
       const colId = findColumnOf(id);
-      setActiveCard(cards[colId ?? ""]?.find((t) => t.id === id) ?? null);
+      setActiveCard(
+        cards[colId ?? ""]?.find((t) => t.id === id) ??
+          holdTasks.find((t) => t.id === id) ??
+          null
+      );
     }
   }
 
@@ -436,20 +447,54 @@ export default function BoardView({
       return;
     }
 
-    // puštění karty na automatický sloupec: Done kartu dokončí,
+    // puštění karty na automatický sloupec: Hold kartu uspí, Done dokončí,
     // Waiting on se plní jen follow-upem z karty
     const dropTarget = isColId(overId)
       ? stripCol(overId)
-      : doneTasks.some((t) => t.id === overId)
-        ? DONE_COL
-        : waitingTasks.some((t) => t.id === overId)
-          ? WAITING_COL
-          : null;
-    if (dropTarget === DONE_COL) {
+      : holdTasks.some((t) => t.id === overId)
+        ? HOLD_COL
+        : doneTasks.some((t) => t.id === overId)
+          ? DONE_COL
+          : waitingTasks.some((t) => t.id === overId)
+            ? WAITING_COL
+            : (findColumnOf(overId) ?? null);
+    const fromHold = holdTasks.some((t) => t.id === activeId);
+
+    if (dropTarget === HOLD_COL) {
       if (findColumnOf(activeId)) {
         const { error } = await supabase
           .from("tasks")
-          .update({ completed_at: new Date().toISOString() })
+          .update({ on_hold: true })
+          .eq("id", activeId);
+        if (error) toast("Uspání karty se nezdařilo.", "error");
+      }
+      load();
+      return;
+    }
+    // probuzení: karta z Hold zpět do běžného sloupce
+    if (fromHold && dropTarget && !dropTarget.startsWith("__")) {
+      const list = cards[dropTarget] ?? [];
+      const { error } = await supabase
+        .from("tasks")
+        .update({
+          on_hold: false,
+          column_id: dropTarget,
+          position: posBetween(list[list.length - 1]?.position, undefined),
+        })
+        .eq("id", activeId);
+      if (error) toast("Probuzení karty se nezdařilo.", "error");
+      load();
+      return;
+    }
+    if (dropTarget === DONE_COL) {
+      if (findColumnOf(activeId) || fromHold) {
+        const { error } = await supabase
+          .from("tasks")
+          .update(
+            fromHold
+              ? { completed_at: new Date().toISOString(), on_hold: false }
+              : { completed_at: new Date().toISOString() }
+          )
           .eq("id", activeId);
         if (error) toast("Dokončení se nezdařilo.", "error");
         else pingNotifyEmails(); // opakovaná karta může přiřadit další výskyt
@@ -677,6 +722,34 @@ export default function BoardView({
           </SortableContext>
 
           {/* automatické sloupce — má je každý projekt, plní se samy */}
+          <VirtualColumn
+            dndId={colDndId(HOLD_COL)}
+            title="💤 Hold"
+            count={visible(holdTasks).length}
+            hint="Uspané karty — vidět jen tady na nástěnce, ne v Task force ani v Moje úkoly. Přetažením sem kartu uspíš, přetažením ven probudíš."
+          >
+            <SortableContext
+              items={visible(holdTasks).map((t) => t.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="flex min-h-2 flex-col gap-2">
+                {visible(holdTasks).map((task) => (
+                  <BoardCard
+                    key={task.id}
+                    task={task}
+                    members={members}
+                    labels={cardLabels[task.id]}
+                    assigneeIds={cardAssignees[task.id]}
+                    subtaskCount={subCounts[task.id]}
+                    waitingOn={cardWaiting[task.id]}
+                    ghostAssignees={cardGhosts[task.id]}
+                    onOpen={openCard}
+                    onStart={startCard}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </VirtualColumn>
           <VirtualColumn
             dndId={colDndId(WAITING_COL)}
             title="⏳ Waiting on"

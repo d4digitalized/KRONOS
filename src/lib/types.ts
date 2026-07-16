@@ -83,6 +83,8 @@ export type Task = {
   is_private?: boolean;
   /** vedoucí úkolu (interní člen); nastavuje jen admin */
   lead_id?: string | null;
+  /** uspaná karta (sloupec Hold) — vidět jen na nástěnce projektu */
+  on_hold?: boolean;
   projects?: { name: string; position?: number };
   board_columns?: { name: string } | null;
 };

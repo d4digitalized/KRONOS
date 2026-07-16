@@ -164,6 +164,8 @@ export default function TasksView({
   const ghostIds = new Set(Object.values(ghostAssignees).flat());
   const ghosts = contacts.filter((c) => ghostIds.has(c.id));
   const visible = tasks
+    // uspané karty (Hold na nástěnce) žijí jen v přehledu projektu
+    .filter((t) => !t.on_hold)
     // Inbox je soukromý: úkol bez projektu a bez řešitele (člena ani ducha)
     // patří jen svému autorovi — ani admin ho tady nevidí (má ho v Inboxu).
     .filter(

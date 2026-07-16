@@ -90,12 +90,15 @@ export default function MyTasksView({
     const waiting = new Set((fuRes.data ?? []).map((r) => r.task_id as string));
     const mine = ((mineRes.data ?? []) as unknown as { tasks: Task }[])
       .map((r) => r.tasks)
-      .filter((t) => !waiting.has(t.id))
+      // bez follow-upů (žijí v „Čekám na") a bez uspaných karet (Hold)
+      .filter((t) => !waiting.has(t.id) && !t.on_hold)
       .sort(byDue);
     const leadRows = ((leadRes.data ?? []) as unknown as (Task & {
       task_assignees?: { user_id: string }[];
       task_contact_assignees?: { contacts: Contact | null }[];
-    })[]).sort(byDue);
+    })[])
+      .filter((t) => !t.on_hold) // uspané karty spí i pro vedoucího
+      .sort(byDue);
     const leadByTask: Record<string, string[]> = {};
     const ghostsByTask: Record<string, Contact[]> = {};
     for (const t of leadRows) {
