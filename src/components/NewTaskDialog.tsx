@@ -15,8 +15,9 @@ import PersonPicker, {
 } from "@/components/PersonPicker";
 import type { Contact, Membership, Project, WorkspaceOption } from "@/lib/types";
 
-/** Rychlé založení úkolu. Řešitel je předvyplněný na mě; koho smím přiřadit
-    navíc, řeší role (admin) a granty — stejná pravidla jako v kartě.
+/** Rychlé založení úkolu. Bez vyplnění čehokoli padne úkol do Inboxu
+    (GTD zachytávání); koho smím přiřadit, řeší role (admin) a granty —
+    stejná pravidla jako v kartě.
     Řešitelem může být i duch (externí kontakt bez účtu). Bez projektu =
     soukromý úkol (vidí autor + řešitelé). Delegátoři mají navíc pole
     „Čekám na" (follow-up), skrývači zaškrtávátko skrytého úkolu.
@@ -45,8 +46,9 @@ export default function NewTaskDialog({
   const [title, setTitle] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
   // řešitel a follow-up jako PersonRef ("u:<userId>" | "c:<contactId>");
-  // výchozí řešitel = já (dá se přepnout na „Bez řešitele" → úkol jde do Inboxu)
-  const [assignee, setAssignee] = useState<PersonRef | null>(`u:${userId}`);
+  // bez řešitele = rychle zachycený úkol spadne do Inboxu k roztřídění;
+  // vybrat sebe (nebo kohokoli) je pak jedno kliknutí
+  const [assignee, setAssignee] = useState<PersonRef | null>(null);
   // vedoucí úkolu — nastavuje jen admin (hlídá i DB trigger)
   const [lead, setLead] = useState<PersonRef | null>(null);
   const [waitSel, setWaitSel] = useState<PersonRef | null>(null);
@@ -113,7 +115,7 @@ export default function NewTaskDialog({
     if (id === activeWs) return;
     setActiveWs(id);
     setProjectId(null);
-    setAssignee(`u:${userId}`);
+    setAssignee(null);
     setLead(null);
     setWaitSel(null);
     setAssignToo(false);
@@ -344,7 +346,7 @@ export default function NewTaskDialog({
             value={assignee}
             onChange={setAssignee}
             onContactCreated={addContact}
-            noneLabel="Bez řešitele"
+            noneLabel="Bez řešitele (do Inboxu)"
             placeholder="Řešitel"
             ariaLabel="Řešitel"
           />
