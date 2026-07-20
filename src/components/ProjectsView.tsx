@@ -7,6 +7,16 @@ import { ProjectDot } from "@/components/ProjectPicker";
 import Avatar from "@/components/Avatar";
 import type { Membership, Project } from "@/lib/types";
 
+/** Nick pro řazení a popisky: @tag, jinak jméno / e-mail. */
+function memberNick(m: Membership): string {
+  return (
+    m.profiles?.tag_name ||
+    m.profiles?.full_name ||
+    m.profiles?.email ||
+    ""
+  ).toLowerCase();
+}
+
 export default function ProjectsView({ wsId }: { wsId: string }) {
   const supabase = createClient();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -34,7 +44,7 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
       supabase
         .from("workspace_members")
         .select(
-          "workspace_id, user_id, role, profiles(full_name, email, avatar_initials, avatar_color)"
+          "workspace_id, user_id, role, profiles(full_name, email, tag_name, avatar_initials, avatar_color)"
         )
         .eq("workspace_id", wsId),
       supabase
@@ -52,12 +62,7 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
     }
     setMemberIds(byProject);
     const members = (membersRes.data as unknown as Membership[]) ?? [];
-    members.sort((a, b) =>
-      (a.profiles?.full_name || a.profiles?.email || "").localeCompare(
-        b.profiles?.full_name || b.profiles?.email || "",
-        "cs"
-      )
-    );
+    members.sort((a, b) => memberNick(a).localeCompare(memberNick(b), "cs"));
     setWsMembers(members);
     setLoading(false);
   }, [supabase, wsId]);
@@ -281,35 +286,24 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
                   >
                     {project.name}
                   </span>
-                  {/* kdo projekt vidí: admini | přiřazení členové */}
+                  {/* přiřazení členové (bez adminů — ti vidí všechny projekty),
+                      seřazení podle nicku */}
                   {(() => {
-                    const explicit = memberIds[project.id] ?? [];
-                    // admin je vlevo vždy — projekt vidí i bez zaškrtnutí
-                    const admins = wsMembers.filter((m) => m.role === "admin");
-                    const assignedMembers = explicit
+                    const people = (memberIds[project.id] ?? [])
                       .map((id) => wsMembers.find((x) => x.user_id === id))
-                      .filter((m): m is Membership => !!m && m.role !== "admin");
-                    if (admins.length === 0 && assignedMembers.length === 0)
-                      return null;
-                    const dot = (m: Membership) => (
-                      <Avatar
-                        key={m.user_id}
-                        profile={m.profiles}
-                        colorKey={m.user_id}
-                        size="sm"
-                      />
-                    );
+                      .filter((m): m is Membership => !!m && m.role !== "admin")
+                      .sort((a, b) => memberNick(a).localeCompare(memberNick(b), "cs"));
+                    if (people.length === 0) return null;
                     return (
                       <span className="flex shrink-0 items-center gap-1">
-                        {admins.map(dot)}
-                        {admins.length > 0 && assignedMembers.length > 0 && (
-                          <span
-                            aria-hidden
-                            className="mx-0.5 h-4 w-px bg-line"
-                            title="vlevo admini · vpravo přiřazení členové"
+                        {people.map((m) => (
+                          <Avatar
+                            key={m.user_id}
+                            profile={m.profiles}
+                            colorKey={m.user_id}
+                            size="sm"
                           />
-                        )}
-                        {assignedMembers.map(dot)}
+                        ))}
                       </span>
                     );
                   })()}
@@ -345,17 +339,20 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
             {membersFor === project.id && (
               <div className="border-t border-line/50 bg-black/[.015] px-3 py-2">
                 <p className="pb-1 text-xs text-ink-soft/70">
-                  Kdo projekt vidí a pracuje na něm. V řádku projektu jsou vlevo
-                  od čárky admini (mají přístup ke všem projektům automaticky),
-                  vpravo přiřazení členové.
+                  Kdo projekt vidí a pracuje na něm. V řádku projektu jsou
+                  kolečka přiřazených členů; admini mají přístup ke všem
+                  projektům automaticky, proto se tam neukazují.
                 </p>
                 {assignedLoading ? (
                   <p className="py-1 text-sm text-ink-soft/70">Načítám…</p>
                 ) : (
                   <div className="grid gap-x-6 sm:grid-cols-2">
                     {wsMembers.map((member) => {
-                      const name =
-                        member.profiles?.full_name || member.profiles?.email || "?";
+                      const name = member.profiles?.tag_name
+                        ? `@${member.profiles.tag_name}`
+                        : member.profiles?.full_name ||
+                          member.profiles?.email ||
+                          "?";
                       if (member.role === "admin") {
                         return (
                           <div
