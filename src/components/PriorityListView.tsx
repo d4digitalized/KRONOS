@@ -30,7 +30,7 @@ import { cacheGet, cacheSet } from "@/lib/viewCache";
 import { TASKS_CHANGED_EVENT } from "@/lib/tasksChanged";
 import { fmtDate } from "@/lib/format";
 import { priorityColor } from "@/lib/priority";
-import { ProjectDot } from "@/components/ProjectPicker";
+import { ProjectDot, projectColor } from "@/components/ProjectPicker";
 import type { Membership, Task } from "@/lib/types";
 
 // Modal se načte až při otevření karty — nezatěžuje základní bundle routy.
@@ -62,6 +62,9 @@ export default function PriorityListView({
   const [loading, setLoading] = useState(!cached);
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [activeTask, setActiveTask] = useState<PriorityTask | null>(null);
+  // filtry: firma a fulltext; pořadí se přetahováním mění jen v plném seznamu
+  const [fWs, setFWs] = useState("");
+  const [fText, setFText] = useState("");
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -176,21 +179,102 @@ export default function PriorityListView({
   if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
 
   const today = isoDay(new Date());
+  // firmy, ze kterých mám úkoly — v pořadí prvního výskytu
+  const wsOptions: { id: string; name: string }[] = [];
+  for (const t of tasks) {
+    if (!wsOptions.some((w) => w.id === t.workspace_id))
+      wsOptions.push({
+        id: t.workspace_id,
+        name: t.workspaces?.name ?? "Firma",
+      });
+  }
+  const q = fText.trim().toLowerCase();
+  const filtered = tasks.filter(
+    (t) =>
+      (!fWs || t.workspace_id === fWs) &&
+      (!q ||
+        t.title.toLowerCase().includes(q) ||
+        (t.projects?.name ?? "").toLowerCase().includes(q))
+  );
+  // přetahovat jde jen v nefiltrovaném seznamu — jinak by pořadí přeskakovalo
+  const dragEnabled = !fWs && !q;
 
   return (
     <div className="w-full space-y-4">
-      <div>
-        <h1 className="font-display text-lg font-semibold">Priority list</h1>
-        <p className="text-xs text-ink-soft/70">
-          {tasks.length === 0
-            ? "Žádné otevřené úkoly."
-            : `${tasks.length} úkolů ze všech firem — pořadí si určuješ přetažením`}
-        </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div>
+          <h1 className="font-display text-lg font-semibold">Priority list</h1>
+          <p className="text-xs text-ink-soft/70">
+            {tasks.length === 0
+              ? "Žádné otevřené úkoly."
+              : dragEnabled
+                ? `${tasks.length} úkolů ze všech firem — pořadí si určuješ přetažením`
+                : `${filtered.length} z ${tasks.length} úkolů — pořadí měň bez filtru`}
+          </p>
+        </div>
+        <span className="flex-1" />
+        {tasks.length > 0 && (
+          <input
+            type="search"
+            placeholder="Hledat…"
+            value={fText}
+            onChange={(e) => setFText(e.target.value)}
+            className="input w-44 px-2 py-1 text-sm"
+          />
+        )}
       </div>
+
+      {/* filtr firem — barvy sedí s pruhem a štítkem u řádku */}
+      {wsOptions.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            onClick={() => setFWs("")}
+            aria-pressed={!fWs}
+            className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+              !fWs
+                ? "border-transparent bg-accent text-white"
+                : "border-line text-ink-soft hover:border-ink-soft/40"
+            }`}
+          >
+            Všechny firmy
+          </button>
+          {wsOptions.map((w) => {
+            const on = fWs === w.id;
+            const count = tasks.filter((t) => t.workspace_id === w.id).length;
+            return (
+              <button
+                key={w.id}
+                onClick={() => setFWs(on ? "" : w.id)}
+                aria-pressed={on}
+                style={
+                  on
+                    ? {
+                        background: projectColor(w.id),
+                        borderColor: projectColor(w.id),
+                      }
+                    : { color: projectColor(w.id) }
+                }
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  on ? "text-white" : "border-line hover:border-ink-soft/40"
+                }`}
+              >
+                {w.name}
+                <span className={on ? "text-white/70" : "text-ink-soft/60"}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {tasks.length === 0 ? (
         <p className="panel p-8 text-center text-sm text-ink-soft/70">
           Nemáš žádné otevřené úkoly. 🎉
+        </p>
+      ) : filtered.length === 0 ? (
+        <p className="panel p-6 text-center text-sm text-ink-soft/70">
+          Žádné úkoly neodpovídají filtru.
         </p>
       ) : (
         <DndContext
@@ -200,16 +284,17 @@ export default function PriorityListView({
           onDragEnd={handleDragEnd}
         >
           <SortableContext
-            items={tasks.map((t) => t.id)}
+            items={filtered.map((t) => t.id)}
             strategy={verticalListSortingStrategy}
           >
             <div className="panel divide-y divide-line/50">
-              {tasks.map((task, index) => (
+              {filtered.map((task) => (
                 <PriorityRow
                   key={task.id}
                   task={task}
-                  order={index + 1}
+                  order={tasks.findIndex((t) => t.id === task.id) + 1}
                   today={today}
+                  draggable={dragEnabled}
                   onOpen={setOpenTask}
                   onToggleDone={toggleDone}
                 />
@@ -249,12 +334,15 @@ function PriorityRow({
   task,
   order,
   today,
+  draggable,
   onOpen,
   onToggleDone,
 }: {
   task: PriorityTask;
   order: number;
   today: string;
+  /** s filtrem se pořadí nepřetahuje — úchyt se schová */
+  draggable: boolean;
   onOpen: (task: Task) => void;
   onToggleDone: (task: Task) => void;
 }) {
@@ -276,16 +364,26 @@ function PriorityRow({
         isDragging ? "opacity-40" : ""
       }`}
     >
-      <button
-        {...attributes}
-        {...listeners}
-        onClick={(e) => e.stopPropagation()}
-        aria-label={`Přetáhnout ${task.title}`}
-        title="Přetažením změníš pořadí"
-        className="cursor-grab rounded px-1 text-ink-soft/50 hover:bg-black/5 hover:text-ink-soft"
-      >
-        ⠿
-      </button>
+      {draggable ? (
+        <button
+          {...attributes}
+          {...listeners}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Přetáhnout ${task.title}`}
+          title="Přetažením změníš pořadí"
+          className="cursor-grab rounded px-1 text-ink-soft/50 hover:bg-black/5 hover:text-ink-soft"
+        >
+          ⠿
+        </button>
+      ) : (
+        <span
+          title="Pořadí měň bez zapnutého filtru"
+          className="px-1 text-ink-soft/20"
+          aria-hidden
+        >
+          ⠿
+        </span>
+      )}
       <span className="w-5 shrink-0 text-right text-xs tabular-nums text-ink-soft/50">
         {order}
       </span>
@@ -296,6 +394,12 @@ function PriorityRow({
         onClick={(e) => e.stopPropagation()}
         aria-label={`Hotovo: ${task.title}`}
         className="hidden h-4 w-4 sm:block"
+      />
+      {/* barevný pruh firmy — v míchaném seznamu je hned vidět, kam úkol patří */}
+      <span
+        aria-hidden
+        style={{ background: projectColor(task.workspace_id) }}
+        className="h-8 w-1 shrink-0 rounded-full [-webkit-print-color-adjust:exact] [print-color-adjust:exact]"
       />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm">
@@ -314,13 +418,22 @@ function PriorityRow({
             </span>
           )}
         </p>
-        <p className="truncate text-xs text-ink-soft/70">
+        <p className="flex min-w-0 items-center gap-1.5 text-xs text-ink-soft/70">
           {task.workspaces?.name && (
-            <span className="font-medium">{task.workspaces.name}</span>
+            <span
+              style={{
+                background: `${projectColor(task.workspace_id)}1a`,
+                color: projectColor(task.workspace_id),
+              }}
+              className="shrink-0 rounded-full px-1.5 py-px text-[11px] font-semibold [-webkit-print-color-adjust:exact] [print-color-adjust:exact]"
+            >
+              {task.workspaces.name}
+            </span>
           )}
-          {task.workspaces?.name && " · "}
-          <ProjectDot id={task.project_id} className="mr-1 h-2 w-2 align-middle" />
-          {task.projects?.name ?? "Bez projektu"}
+          <span className="truncate">
+            <ProjectDot id={task.project_id} className="mr-1 h-2 w-2 align-middle" />
+            {task.projects?.name ?? "Bez projektu"}
+          </span>
         </p>
       </div>
       {task.due_date && (
