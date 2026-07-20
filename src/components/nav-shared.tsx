@@ -20,6 +20,7 @@ export const ICONS = {
   hourglass: "M7 3h10M7 21h10M8 3v4l4 5 4-5V3M8 21v-4l4-5 4 5v4",
   inbox:
     "M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z",
+  list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
 } as const;
 
 export type IconName = keyof typeof ICONS;
@@ -70,6 +71,8 @@ export function buildNavSections(
       items: [
         { href: `/w/${wsId}/inbox`, label: "Inbox", icon: "inbox", badge: true },
         { href: `/w/${wsId}/my`, label: "Moje úkoly", icon: "user" },
+        // Priority list — moje úkoly ze všech firem v ručním pořadí
+        { href: `/w/${wsId}/priority`, label: "Priority list", icon: "list" },
         // Čekám na — jen pro odemknuté delegátory (admin / can_delegate)
         ...(canDelegate
           ? [
