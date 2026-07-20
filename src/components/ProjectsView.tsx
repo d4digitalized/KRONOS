@@ -281,28 +281,43 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
                   >
                     {project.name}
                   </span>
-                  {/* kdo je na projektu — admini se nepočítají, ti vidí vše */}
-                  {(memberIds[project.id] ?? []).length > 0 && (
-                    <span className="flex shrink-0 -space-x-1.5">
-                      {(memberIds[project.id] ?? []).slice(0, 6).map((id) => {
-                        const m = wsMembers.find((x) => x.user_id === id);
-                        return (
+                  {/* kdo projekt vidí: přiřazení členové + admini (ti vždy) */}
+                  {(() => {
+                    const explicit = memberIds[project.id] ?? [];
+                    const people = [
+                      ...wsMembers.filter(
+                        (m) => m.role === "admin" && !explicit.includes(m.user_id)
+                      ),
+                      ...explicit
+                        .map((id) => wsMembers.find((x) => x.user_id === id))
+                        .filter((m): m is Membership => !!m),
+                    ];
+                    if (people.length === 0) return null;
+                    return (
+                      <span className="flex shrink-0 -space-x-1.5">
+                        {people.slice(0, 6).map((m) => (
+                          // admin má prstýnek a je světlejší — vidí vše, není
+                          // přiřazený na projekt
                           <Avatar
-                            key={id}
-                            profile={m?.profiles}
-                            colorKey={id}
+                            key={m.user_id}
+                            profile={m.profiles}
+                            colorKey={m.user_id}
                             size="sm"
-                            className="border border-surface"
+                            className={
+                              m.role === "admin"
+                                ? "opacity-60 ring-1 ring-ink-soft/40"
+                                : "border border-surface"
+                            }
                           />
-                        );
-                      })}
-                      {(memberIds[project.id] ?? []).length > 6 && (
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-black/10 text-[9px] font-medium text-ink-soft">
-                          +{(memberIds[project.id] ?? []).length - 6}
-                        </span>
-                      )}
-                    </span>
-                  )}
+                        ))}
+                        {people.length > 6 && (
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-black/10 text-[9px] font-medium text-ink-soft">
+                            +{people.length - 6}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })()}
                   <button
                     onClick={() => openMembers(project)}
                     aria-expanded={membersFor === project.id}
@@ -335,8 +350,8 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
             {membersFor === project.id && (
               <div className="border-t border-line/50 bg-black/[.015] px-3 py-2">
                 <p className="pb-1 text-xs text-ink-soft/70">
-                  Kdo projekt vidí a pracuje na něm. Admini vidí všechny projekty
-                  automaticky.
+                  Kdo projekt vidí a pracuje na něm. Admini (světlejší kolečko
+                  s prstýnkem) mají přístup ke všem projektům automaticky.
                 </p>
                 {assignedLoading ? (
                   <p className="py-1 text-sm text-ink-soft/70">Načítám…</p>
@@ -354,8 +369,16 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
                             <span className="inline-flex h-4 w-4 items-center justify-center">
                               ✓
                             </span>
-                            <span className="min-w-0 flex-1 truncate">{name}</span>
-                            <span className="chip">admin · vidí vše</span>
+                            <Avatar
+                              profile={member.profiles}
+                              colorKey={member.user_id}
+                              size="xs"
+                              className="opacity-60 ring-1 ring-ink-soft/40"
+                            />
+                            <span className="truncate">{name}</span>
+                            <span className="shrink-0 text-xs text-ink-soft/60">
+                              — admin, vidí vše
+                            </span>
                           </div>
                         );
                       }
@@ -369,6 +392,11 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
                             checked={assigned.has(member.user_id)}
                             onChange={() => toggleMember(project.id, member.user_id)}
                             className="h-4 w-4 accent-[var(--accent)]"
+                          />
+                          <Avatar
+                            profile={member.profiles}
+                            colorKey={member.user_id}
+                            size="xs"
                           />
                           <span className="min-w-0 flex-1 truncate">{name}</span>
                         </label>
