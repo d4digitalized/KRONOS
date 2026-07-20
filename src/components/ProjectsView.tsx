@@ -77,7 +77,7 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
       ).sort((a, b) =>
         Number(a.archived) - Number(b.archived) ||
         a.position - b.position ||
-        a.name.localeCompare(b.name, "cs")
+        a.name.localeCompare(b.name, "cs", { numeric: true })
       )
     );
     const [r1, r2] = await Promise.all([
@@ -88,6 +88,28 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
       toast("Změna pořadí se nezdařila.", "error");
       load();
     }
+  }
+
+  /** Přerovná projekty podle názvu a pořadí uloží (position) — projeví se
+      všude, kde se projekty řadí: nástěnky, pickery, Přehledy. Číselné
+      prefixy se řadí přirozeně (2000_ před 3105_). */
+  async function sortByName() {
+    const collator = new Intl.Collator("cs", { numeric: true });
+    const ordered = [...projects].sort(
+      (a, b) => Number(a.archived) - Number(b.archived) || collator.compare(a.name, b.name)
+    );
+    setProjects(ordered.map((p, i) => ({ ...p, position: i + 1 })));
+    const results = await Promise.all(
+      ordered.map((p, i) =>
+        supabase.from("projects").update({ position: i + 1 }).eq("id", p.id)
+      )
+    );
+    if (results.some((r) => r.error)) {
+      toast("Seřazení se nezdařilo.", "error");
+      load();
+      return;
+    }
+    toast("Projekty seřazeny podle názvu.");
   }
 
   async function rename(project: Project) {
@@ -170,6 +192,16 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
         >
           Přidat
         </button>
+        {projects.length > 1 && (
+          <button
+            type="button"
+            onClick={sortByName}
+            title="Přerovná projekty abecedně (číselné prefixy vzestupně) a pořadí uloží"
+            className="btn-ghost whitespace-nowrap px-3 text-sm"
+          >
+            Seřadit podle názvu
+          </button>
+        )}
       </form>
 
       <div className="divide-y divide-line/70 panel">
