@@ -281,40 +281,36 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
                   >
                     {project.name}
                   </span>
-                  {/* kdo projekt vidí: přiřazení členové + admini (ti vždy) */}
+                  {/* kdo projekt vidí: admini | přiřazení členové */}
                   {(() => {
                     const explicit = memberIds[project.id] ?? [];
-                    const people = [
-                      ...wsMembers.filter(
-                        (m) => m.role === "admin" && !explicit.includes(m.user_id)
-                      ),
-                      ...explicit
-                        .map((id) => wsMembers.find((x) => x.user_id === id))
-                        .filter((m): m is Membership => !!m),
-                    ];
-                    if (people.length === 0) return null;
+                    const admins = wsMembers.filter(
+                      (m) => m.role === "admin" && !explicit.includes(m.user_id)
+                    );
+                    const assignedMembers = explicit
+                      .map((id) => wsMembers.find((x) => x.user_id === id))
+                      .filter((m): m is Membership => !!m);
+                    if (admins.length === 0 && assignedMembers.length === 0)
+                      return null;
+                    const dot = (m: Membership) => (
+                      <Avatar
+                        key={m.user_id}
+                        profile={m.profiles}
+                        colorKey={m.user_id}
+                        size="sm"
+                      />
+                    );
                     return (
-                      <span className="flex shrink-0 -space-x-1.5">
-                        {people.slice(0, 6).map((m) => (
-                          // admin má prstýnek a je světlejší — vidí vše, není
-                          // přiřazený na projekt
-                          <Avatar
-                            key={m.user_id}
-                            profile={m.profiles}
-                            colorKey={m.user_id}
-                            size="sm"
-                            className={
-                              m.role === "admin"
-                                ? "opacity-60 ring-1 ring-ink-soft/40"
-                                : "border border-surface"
-                            }
+                      <span className="flex shrink-0 items-center gap-1">
+                        {admins.map(dot)}
+                        {admins.length > 0 && assignedMembers.length > 0 && (
+                          <span
+                            aria-hidden
+                            className="mx-0.5 h-4 w-px bg-line"
+                            title="vlevo admini · vpravo přiřazení členové"
                           />
-                        ))}
-                        {people.length > 6 && (
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-black/10 text-[9px] font-medium text-ink-soft">
-                            +{people.length - 6}
-                          </span>
                         )}
+                        {assignedMembers.map(dot)}
                       </span>
                     );
                   })()}
@@ -350,8 +346,9 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
             {membersFor === project.id && (
               <div className="border-t border-line/50 bg-black/[.015] px-3 py-2">
                 <p className="pb-1 text-xs text-ink-soft/70">
-                  Kdo projekt vidí a pracuje na něm. Admini (světlejší kolečko
-                  s prstýnkem) mají přístup ke všem projektům automaticky.
+                  Kdo projekt vidí a pracuje na něm. V řádku projektu jsou vlevo
+                  od čárky admini (mají přístup ke všem projektům automaticky),
+                  vpravo přiřazení členové.
                 </p>
                 {assignedLoading ? (
                   <p className="py-1 text-sm text-ink-soft/70">Načítám…</p>
@@ -373,7 +370,6 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
                               profile={member.profiles}
                               colorKey={member.user_id}
                               size="xs"
-                              className="opacity-60 ring-1 ring-ink-soft/40"
                             />
                             <span className="truncate">{name}</span>
                             <span className="shrink-0 text-xs text-ink-soft/60">
