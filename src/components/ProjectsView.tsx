@@ -196,6 +196,34 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
     loadProjectColors(supabase, wsId); // přebarvi tečky projektů v kategorii
   }
 
+  /** Posun kategorie v pořadí — prohodí position se sousedem. */
+  async function moveCategory(cat: ProjectCategory, dir: -1 | 1) {
+    const idx = categories.findIndex((c) => c.id === cat.id);
+    const other = categories[idx + dir];
+    if (!other) return;
+    setCategories((prev) => {
+      const next = [...prev];
+      next[idx] = other;
+      next[idx + dir] = cat;
+      return next;
+    });
+    // pozice mohou po ruční editaci kolidovat — zapiš rovnou indexy obou
+    const [r1, r2] = await Promise.all([
+      supabase
+        .from("project_categories")
+        .update({ position: idx + dir + 1 })
+        .eq("id", cat.id),
+      supabase
+        .from("project_categories")
+        .update({ position: idx + 1 })
+        .eq("id", other.id),
+    ]);
+    if (r1.error || r2.error) {
+      toast("Změna pořadí kategorií se nezdařila.", "error");
+      load();
+    }
+  }
+
   async function removeCategory(cat: ProjectCategory) {
     const used = projects.filter((p) => p.category_id === cat.id).length;
     const ok = await confirmDialog({
@@ -348,7 +376,7 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
           <span className="text-xs text-ink-soft/70">
             {categories.length === 0
               ? "žádné — projekty se nefiltrují"
-              : `${categories.length} · ${categories.map((c) => c.name).join(", ")}`}
+              : `${categories.length} · ${categories.map((c) => c.name).join(", ")} — pořadí řídí šipky`}
           </span>
           <span className="flex-1" />
           <span className="text-xs text-ink-soft/50" aria-hidden>
@@ -357,8 +385,26 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
         </button>
         {catsOpen && (
           <div className="space-y-2 border-t border-line/50 bg-black/[.015] px-3 py-3">
-            {categories.map((cat) => (
+            {categories.map((cat, i) => (
               <div key={cat.id} className="flex flex-wrap items-center gap-2">
+                <span className="flex flex-col">
+                  <button
+                    onClick={() => moveCategory(cat, -1)}
+                    disabled={i === 0}
+                    aria-label={`Posunout ${cat.name} nahoru`}
+                    className="rounded px-1 text-[10px] leading-3 text-ink-soft/50 hover:bg-black/5 hover:text-ink disabled:opacity-30"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    onClick={() => moveCategory(cat, 1)}
+                    disabled={i === categories.length - 1}
+                    aria-label={`Posunout ${cat.name} dolů`}
+                    className="rounded px-1 text-[10px] leading-3 text-ink-soft/50 hover:bg-black/5 hover:text-ink disabled:opacity-30"
+                  >
+                    ▼
+                  </button>
+                </span>
                 <span
                   aria-hidden
                   style={{ background: cat.color || projectColor(cat.id) }}
