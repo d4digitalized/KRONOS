@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
@@ -22,10 +22,13 @@ export default function TasksView({
   wsId,
   userId,
   isAdmin,
+  initialTaskId,
 }: {
   wsId: string;
   userId: string;
   isAdmin: boolean;
+  /** sdílený odkaz (/t/<id>): po načtení rovnou otevřít kartu úkolu */
+  initialTaskId?: string;
 }) {
   const supabase = createClient();
   const cacheKey = `tasks:${wsId}`;
@@ -49,6 +52,23 @@ export default function TasksView({
   );
   const [loading, setLoading] = useState(!cached);
   const [openTask, setOpenTask] = useState<Task | null>(null);
+
+  // sdílený odkaz: jednorázově otevřít kartu z ?task=
+  const sharedOpened = useRef(false);
+  useEffect(() => {
+    if (!initialTaskId || sharedOpened.current) return;
+    sharedOpened.current = true;
+    supabase
+      .from("tasks")
+      .select("*")
+      .eq("id", initialTaskId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setOpenTask(data as Task);
+        else toast("Úkol nenalezen nebo k němu nemáš přístup.", "error");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTaskId]);
   // můj tým: já + lidé, kterým smím zadávat (assign_grants); admin vidí všechny
   const [grants, setGrants] = useState<Set<string>>(new Set());
   // filtry

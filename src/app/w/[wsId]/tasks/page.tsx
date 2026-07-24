@@ -4,10 +4,13 @@ import TasksView from "@/components/TasksView";
 
 export default async function TasksPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ wsId: string }>;
+  searchParams: Promise<{ task?: string }>;
 }) {
   const { wsId } = await params;
+  const { task: initialTaskId } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -34,5 +37,12 @@ export default async function TasksPage({
   // Task force vidí jen ten, kdo může zadávat i jiným (admin / grant)
   if (!isAdmin && (grantCount ?? 0) === 0) redirect(`/w/${wsId}/my`);
 
-  return <TasksView wsId={wsId} userId={user.id} isAdmin={isAdmin} />;
+  return (
+    <TasksView
+      wsId={wsId}
+      userId={user.id}
+      isAdmin={isAdmin}
+      initialTaskId={initialTaskId}
+    />
+  );
 }

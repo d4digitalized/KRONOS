@@ -4,10 +4,13 @@ import BoardView from "@/components/BoardView";
 
 export default async function BoardPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ wsId: string; projectId: string }>;
+  searchParams: Promise<{ task?: string }>;
 }) {
   const { wsId, projectId } = await params;
+  const { task: initialTaskId } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -45,6 +48,7 @@ export default async function BoardPage({
       projectName={project.name}
       userId={user!.id}
       isAdmin={isAdmin}
+      initialTaskId={initialTaskId}
     />
   );
 }
