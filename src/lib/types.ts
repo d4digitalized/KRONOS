@@ -51,6 +51,18 @@ export type Project = {
   name: string;
   archived: boolean;
   position: number;
+  /** zařazení do kategorie firmy; null = bez kategorie */
+  category_id?: string | null;
+};
+
+/** Kategorie projektů — vlastní sada za každou firmu (spravuje admin). */
+export type ProjectCategory = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  /** hex barva; prázdné = odvodí se z id */
+  color: string;
+  position: number;
 };
 
 export type BoardColumn = {

@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
-import { ProjectDot } from "@/components/ProjectPicker";
-import Avatar from "@/components/Avatar";
-import type { Membership, Project } from "@/lib/types";
+import { confirmDialog } from "@/lib/confirm";
+import { ProjectDot, projectColor } from "@/components/ProjectPicker";
+import Avatar, { AVATAR_COLORS } from "@/components/Avatar";
+import type { Membership, Project, ProjectCategory } from "@/lib/types";
 
 /** Nick pro řazení a popisky: @tag, jinak jméno / e-mail. */
 function memberNick(m: Membership): string {
@@ -23,6 +24,10 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
   const [wsMembers, setWsMembers] = useState<Membership[]>([]);
   // členové jednotlivých projektů — kolečka v řádku
   const [memberIds, setMemberIds] = useState<Record<string, string[]>>({});
+  // kategorie firmy (Development, Real estate…) + jejich správa
+  const [categories, setCategories] = useState<ProjectCategory[]>([]);
+  const [catsOpen, setCatsOpen] = useState(false);
+  const [newCat, setNewCat] = useState("");
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -33,7 +38,7 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
   const [assignedLoading, setAssignedLoading] = useState(false);
 
   const load = useCallback(async () => {
-    const [projectsRes, membersRes, pmRes] = await Promise.all([
+    const [projectsRes, membersRes, pmRes, catRes] = await Promise.all([
       supabase
         .from("projects")
         .select("*")
@@ -51,8 +56,15 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
         .from("project_members")
         .select("project_id, user_id, projects!inner(workspace_id)")
         .eq("projects.workspace_id", wsId),
+      supabase
+        .from("project_categories")
+        .select("*")
+        .eq("workspace_id", wsId)
+        .order("position")
+        .order("name"),
     ]);
     setProjects((projectsRes.data as Project[]) ?? []);
+    setCategories((catRes.data as ProjectCategory[]) ?? []);
     const byProject: Record<string, string[]> = {};
     for (const row of pmRes.data ?? []) {
       byProject[row.project_id as string] = [
@@ -132,6 +144,84 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
       return;
     }
     toast("Projekty seřazeny podle názvu.");
+  }
+
+  // ------------------------------------------------------------- kategorie
+
+  async function addCategory(e: React.FormEvent) {
+    e.preventDefault();
+    const name = newCat.trim();
+    if (!name) return;
+    const { error } = await supabase.from("project_categories").insert({
+      workspace_id: wsId,
+      name,
+      color: AVATAR_COLORS[categories.length % AVATAR_COLORS.length],
+      position: categories.length + 1,
+    });
+    if (error) {
+      toast("Kategorii se nepodařilo založit.", "error");
+      return;
+    }
+    setNewCat("");
+    load();
+  }
+
+  async function renameCategory(cat: ProjectCategory, name: string) {
+    const next = name.trim();
+    if (!next || next === cat.name) return;
+    const { error } = await supabase
+      .from("project_categories")
+      .update({ name: next })
+      .eq("id", cat.id);
+    if (error) toast("Přejmenování kategorie se nezdařilo.", "error");
+    load();
+  }
+
+  async function setCategoryColor(cat: ProjectCategory, color: string) {
+    setCategories((prev) =>
+      prev.map((c) => (c.id === cat.id ? { ...c, color } : c))
+    );
+    const { error } = await supabase
+      .from("project_categories")
+      .update({ color })
+      .eq("id", cat.id);
+    if (error) {
+      toast("Změna barvy se nezdařila.", "error");
+      load();
+    }
+  }
+
+  async function removeCategory(cat: ProjectCategory) {
+    const used = projects.filter((p) => p.category_id === cat.id).length;
+    const ok = await confirmDialog({
+      title: "Smazat kategorii?",
+      message: used
+        ? `Kategorie „${cat.name}" se smaže; ${used} projektů zůstane bez zařazení.`
+        : `Kategorie „${cat.name}" se smaže.`,
+      confirmLabel: "Smazat",
+    });
+    if (!ok) return;
+    const { error } = await supabase
+      .from("project_categories")
+      .delete()
+      .eq("id", cat.id);
+    if (error) toast("Smazání kategorie se nezdařilo.", "error");
+    load();
+  }
+
+  /** Zařazení projektu do kategorie (select v řádku). */
+  async function setProjectCategory(project: Project, categoryId: string | null) {
+    setProjects((prev) =>
+      prev.map((p) => (p.id === project.id ? { ...p, category_id: categoryId } : p))
+    );
+    const { error } = await supabase
+      .from("projects")
+      .update({ category_id: categoryId })
+      .eq("id", project.id);
+    if (error) {
+      toast("Změna kategorie se nezdařila.", "error");
+      load();
+    }
   }
 
   async function rename(project: Project) {
@@ -239,6 +329,84 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
         )}
       </form>
 
+      {/* kategorie projektů — vlastní sada za firmu, filtrují se podle nich
+          projekty na rozcestníku */}
+      <div className="panel">
+        <button
+          onClick={() => setCatsOpen((o) => !o)}
+          aria-expanded={catsOpen}
+          className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
+        >
+          <span className="text-sm font-medium">Kategorie projektů</span>
+          <span className="text-xs text-ink-soft/70">
+            {categories.length === 0
+              ? "žádné — projekty se nefiltrují"
+              : `${categories.length} · ${categories.map((c) => c.name).join(", ")}`}
+          </span>
+          <span className="flex-1" />
+          <span className="text-xs text-ink-soft/50" aria-hidden>
+            {catsOpen ? "▴" : "▾"}
+          </span>
+        </button>
+        {catsOpen && (
+          <div className="space-y-2 border-t border-line/50 bg-black/[.015] px-3 py-3">
+            {categories.map((cat) => (
+              <div key={cat.id} className="flex flex-wrap items-center gap-2">
+                <span
+                  aria-hidden
+                  style={{ background: cat.color || projectColor(cat.id) }}
+                  className="h-3 w-3 shrink-0 rounded-full"
+                />
+                <input
+                  type="text"
+                  defaultValue={cat.name}
+                  onBlur={(e) => renameCategory(cat, e.target.value)}
+                  aria-label={`Název kategorie ${cat.name}`}
+                  className="input min-w-40 flex-1 px-2 py-1 text-sm"
+                />
+                <span className="flex flex-wrap items-center gap-1">
+                  {AVATAR_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setCategoryColor(cat, color)}
+                      aria-label={`Barva ${color}`}
+                      aria-pressed={cat.color === color}
+                      style={{ background: color }}
+                      className={`h-5 w-5 rounded-full transition-transform ${
+                        cat.color === color
+                          ? "scale-110 ring-2 ring-ink ring-offset-1"
+                          : "hover:scale-105"
+                      }`}
+                    />
+                  ))}
+                </span>
+                <span className="text-xs text-ink-soft/60">
+                  {projects.filter((p) => p.category_id === cat.id).length} projektů
+                </span>
+                <button
+                  onClick={() => removeCategory(cat)}
+                  className="rounded-md px-2 py-1 text-xs text-danger hover:bg-danger/10"
+                >
+                  Smazat
+                </button>
+              </div>
+            ))}
+            <form onSubmit={addCategory} className="flex gap-2 pt-1">
+              <input
+                type="text"
+                placeholder="Nová kategorie (např. Development)…"
+                value={newCat}
+                onChange={(e) => setNewCat(e.target.value)}
+                className="input min-w-40 flex-1 px-2 py-1 text-sm"
+              />
+              <button type="submit" className="btn-primary px-3 py-1 text-xs">
+                Přidat
+              </button>
+            </form>
+          </div>
+        )}
+      </div>
+
       <div className="divide-y divide-line/70 panel">
         {projects.length === 0 && (
           <p className="p-4 text-sm text-ink-soft/70">Zatím žádné projekty.</p>
@@ -307,6 +475,30 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
                       </span>
                     );
                   })()}
+                  {/* zařazení do kategorie firmy */}
+                  {categories.length > 0 && (
+                    <select
+                      value={project.category_id ?? ""}
+                      onChange={(e) =>
+                        setProjectCategory(project, e.target.value || null)
+                      }
+                      aria-label={`Kategorie projektu ${project.name}`}
+                      style={{
+                        color: project.category_id
+                          ? (categories.find((c) => c.id === project.category_id)
+                              ?.color || undefined)
+                          : undefined,
+                      }}
+                      className="input shrink-0 px-1.5 py-1 text-xs"
+                    >
+                      <option value="">— bez kategorie —</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <button
                     onClick={() => openMembers(project)}
                     aria-expanded={membersFor === project.id}
