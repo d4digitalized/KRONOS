@@ -117,7 +117,8 @@ export async function drainNotifications(): Promise<{
     const prefs = prefsById.get(n.user_id);
     const wants =
       n.kind === "assigned"
-        ? (prefs?.on_assign ?? true)
+        ? // maily o přiřazení jsou vypnuté, dokud si je člověk nezapne
+          (prefs?.on_assign ?? false)
         : n.kind === "mention"
           ? (prefs?.on_mention ?? true)
           : (prefs?.on_comment ?? true);

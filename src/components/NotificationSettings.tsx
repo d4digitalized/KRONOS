@@ -6,7 +6,8 @@ import { toast } from "@/lib/toast";
 import type { NotificationPrefs } from "@/lib/types";
 
 const DEFAULTS: Omit<NotificationPrefs, "user_id"> = {
-  on_assign: true,
+  // e-mail o přiřazení je ve výchozím stavu vypnutý (viz migrace 0034)
+  on_assign: false,
   on_comment: true,
   on_mention: true,
   daily_digest: true,
@@ -16,7 +17,7 @@ const ITEMS: { key: keyof typeof DEFAULTS; label: string; hint: string }[] = [
   {
     key: "on_assign",
     label: "Přiřazení karty",
-    hint: "E-mail, když ti někdo přiřadí kartu.",
+    hint: "E-mail, když ti někdo přiřadí kartu. Standardně vypnuto — přiřazení uvidíš u zvonečku.",
   },
   {
     key: "on_comment",
