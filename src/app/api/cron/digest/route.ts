@@ -109,7 +109,7 @@ export async function GET(req: Request) {
       try {
         await sendEmail(
           addr,
-          `Kronos: ${tasks.length} ${tasks.length === 1 ? "karta" : tasks.length < 5 ? "karty" : "karet"} k dnešku`,
+          `Kronos. — ${tasks.length} ${tasks.length === 1 ? "karta" : tasks.length < 5 ? "karty" : "karet"} k dnešku`,
           emailLayout("Tvůj denní přehled", sections)
         );
         sent += 1;

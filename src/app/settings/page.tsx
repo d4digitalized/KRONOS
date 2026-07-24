@@ -6,7 +6,7 @@ import NotificationSettings from "@/components/NotificationSettings";
 import ApiTokens from "@/components/ApiTokens";
 
 export const metadata: Metadata = {
-  title: "Nastavení — Kronos",
+  title: "Nastavení — Kronos.",
 };
 
 export default async function SettingsPage() {

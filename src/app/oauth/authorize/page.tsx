@@ -71,7 +71,8 @@ export default async function AuthorizePage({
       <h1 className="font-display text-lg font-semibold">Povolit přístup</h1>
       <p className="text-sm text-ink-soft">
         <span className="font-medium">{client.client_name}</span> žádá o přístup k
-        tvému účtu Kronos (<span className="font-medium">{user.email}</span>). Bude
+        tvému účtu Kronos<span className="text-accent">.</span> (
+        <span className="font-medium">{user.email}</span>). Bude
         moci pod tvým jménem číst a zakládat úkoly, přiřazovat řešitele a komentovat —
         jen v projektech, které sám vidíš.
       </p>

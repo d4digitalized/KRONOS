@@ -17,7 +17,7 @@ export function GET(req: Request) {
     resource: `${origin}/api/mcp`,
     authorization_servers: [origin],
     scopes_supported: ["mcp"],
-    resource_name: "Kronos",
+    resource_name: "Kronos.",
     bearer_methods_supported: ["header"],
   });
 }

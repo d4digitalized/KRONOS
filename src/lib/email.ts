@@ -4,7 +4,8 @@
 export const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? "https://kronos.digitalized.cz";
 
-const FROM = process.env.EMAIL_FROM ?? "Kronos <kronos@digitalized.cz>";
+// display name v uvozovkách — tečka je v RFC 5322 speciální znak
+const FROM = process.env.EMAIL_FROM ?? '"Kronos." <kronos@digitalized.cz>';
 
 export async function sendEmail(
   to: string,
