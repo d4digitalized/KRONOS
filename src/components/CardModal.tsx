@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { startTimer } from "@/lib/timer";
 import { toast } from "@/lib/toast";
@@ -107,6 +107,10 @@ export default function CardModal({
   const supabase = createClient();
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
+  const descriptionLinks = useMemo(
+    () => Array.from(new Set(description.match(/https?:\/\/[^\s<>"')]+/g) ?? [])),
+    [description]
+  );
   const [projectId, setProjectId] = useState(task.project_id);
   const [projects, setProjects] = useState<Project[]>([]);
   const [assignees, setAssignees] = useState<Set<string>>(new Set());
@@ -791,6 +795,28 @@ export default function CardModal({
           rows={4}
           className="input w-full px-3 py-2"
         />
+
+        {/* URL z popisu jako klikací odkazy (popis je editovatelná
+            textarea, sama o sobě odkazy neumí — např. odkazy z Tektosu) */}
+        {descriptionLinks.length > 0 && (
+          <div className="-mt-1 flex flex-wrap gap-1.5">
+            {descriptionLinks.map((url) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="chip inline-flex max-w-full items-center gap-1 hover:text-accent"
+                title={url}
+              >
+                <span className="truncate">
+                  {url.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                </span>
+                <span aria-hidden>↗</span>
+              </a>
+            ))}
+          </div>
+        )}
 
         {/* řešitel + vedoucí na jednom řádku */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
