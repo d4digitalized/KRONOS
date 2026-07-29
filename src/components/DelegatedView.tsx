@@ -22,34 +22,69 @@ function short(date: string): string {
 function isoDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+function addDays(d: Date, n: number): Date {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+// den v týdnu v lokativu podle Date.getDay() (0 = neděle)
+const WEEKDAY = [
+  "v neděli",
+  "v pondělí",
+  "v úterý",
+  "ve středu",
+  "ve čtvrtek",
+  "v pátek",
+  "v sobotu",
+];
 
 type WaitBucket = { key: string; label: string; rows: TaskFollowup[]; accent?: boolean };
 
-/** Seskupení podle slíbeného termínu „do kdy" (waiting_until), ne podle
-    termínu úkolu. Bez slíbeného data padá follow-up na konec. */
+/** Seskupení podle slíbeného termínu „do kdy" (waiting_until): po termínu,
+    dnes, zítra, konkrétní den do konce týdne („v pátek"), příští týden,
+    do měsíce, později; bez slíbeného data na konci. */
 function waitBuckets(rows: TaskFollowup[]): WaitBucket[] {
   const now = new Date();
   const today = isoDay(now);
-  const sunday = new Date(now);
-  sunday.setDate(now.getDate() + ((7 - now.getDay()) % 7));
+  const tomorrow = isoDay(addDays(now, 1));
+  const sunday = addDays(now, (7 - now.getDay()) % 7); // nejbližší neděle
   const endOfWeek = isoDay(sunday);
+  const endOfNextWeek = isoDay(addDays(sunday, 7));
+  const monthAhead = isoDay(addDays(now, 31));
 
-  const groups: WaitBucket[] = [
-    { key: "overdue", label: "Po slíbeném termínu", rows: [], accent: true },
-    { key: "today", label: "Slíbeno dnes", rows: [] },
-    { key: "week", label: "Slíbeno tento týden", rows: [] },
-    { key: "later", label: "Slíbeno později", rows: [] },
-    { key: "nodate", label: "Bez slíbeného termínu", rows: [] },
-  ];
+  const byKey = new Map<string, WaitBucket & { rank: number }>();
+  const put = (
+    key: string,
+    label: string,
+    rank: number,
+    accent: boolean,
+    r: TaskFollowup
+  ) => {
+    const g = byKey.get(key) ?? { key, label, rank, accent, rows: [] };
+    g.rows.push(r);
+    byKey.set(key, g);
+  };
+
   for (const r of rows) {
     const until = r.waiting_until ?? null;
-    if (!until) groups[4].rows.push(r);
-    else if (until < today) groups[0].rows.push(r);
-    else if (until === today) groups[1].rows.push(r);
-    else if (until <= endOfWeek) groups[2].rows.push(r);
-    else groups[3].rows.push(r);
+    if (!until) put("nodate", "Bez slíbeného termínu", 100, false, r);
+    else if (until < today) put("overdue", "Po slíbeném termínu", 0, true, r);
+    else if (until === today) put("today", "Slíbeno dnes", 1, false, r);
+    else if (until === tomorrow) put("tomorrow", "Slíbeno zítra", 2, false, r);
+    else if (until <= endOfWeek) {
+      // do konce týdne — vlastní skupina pro každý den („Slíbeno v pátek")
+      const d = new Date(`${until}T00:00`);
+      const offset = Math.round(
+        (d.getTime() - new Date(`${today}T00:00`).getTime()) / 86400000
+      );
+      put(`wd-${until}`, `Slíbeno ${WEEKDAY[d.getDay()]}`, 3 + offset, false, r);
+    } else if (until <= endOfNextWeek)
+      put("nextweek", "Slíbeno příští týden", 20, false, r);
+    else if (until <= monthAhead) put("month", "Slíbeno do měsíce", 30, false, r);
+    else put("later", "Slíbeno později", 40, false, r);
   }
-  return groups.filter((g) => g.rows.length > 0);
+
+  return [...byKey.values()].sort((a, b) => a.rank - b.rank);
 }
 
 export default function DelegatedView({
