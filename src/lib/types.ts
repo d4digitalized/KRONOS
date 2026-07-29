@@ -131,6 +131,10 @@ export type TaskFollowup = {
   workspace_id: string;
   waiting_user_id: string | null;
   waiting_contact_id: string | null;
+  /** od kdy čekám (editovatelné; default den vzniku) */
+  waiting_since?: string;
+  /** do kdy slíbil/a dodat — slíbený termín, ne termín úkolu (tasks.due_date) */
+  waiting_until?: string | null;
   created_by: string;
   created_at: string;
   contacts?: { name: string } | null;

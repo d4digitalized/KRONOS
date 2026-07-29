@@ -14,13 +14,18 @@ import type { Membership, Task, TaskFollowup } from "@/lib/types";
 // Modal se načte až při otevření karty — nezatěžuje základní bundle routy.
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
 
-/** „čeká dnes / 1 den / 3 dny / 12 dní" */
-function waitingFor(createdAt: string): string {
-  const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86400000);
+/** „čeká dnes / 1 den / 3 dny / 12 dní" — od data waiting_since (fallback vznik) */
+function waitingFor(since: string): string {
+  const days = Math.floor((Date.now() - new Date(since).getTime()) / 86400000);
   if (days <= 0) return "čeká ode dneška";
   if (days === 1) return "čeká 1 den";
   if (days < 5) return `čeká ${days} dny`;
   return `čeká ${days} dní`;
+}
+
+const D_M = { day: "numeric", month: "numeric" } as const;
+function short(date: string): string {
+  return new Date(`${date}T00:00`).toLocaleDateString("cs-CZ", D_M);
 }
 
 export default function DelegatedView({
@@ -56,9 +61,11 @@ export default function DelegatedView({
         .eq("workspace_id", wsId),
     ]);
     const list = ((fuRes.data ?? []) as unknown as TaskFollowup[]).sort(
+      // nejdřív podle slíbeného termínu (do kdy), pak podle termínu úkolu
       (a, b) =>
-        (a.tasks?.due_date ?? "9999").localeCompare(b.tasks?.due_date ?? "9999") ||
-        a.created_at.localeCompare(b.created_at)
+        (a.waiting_until ?? a.tasks?.due_date ?? "9999").localeCompare(
+          b.waiting_until ?? b.tasks?.due_date ?? "9999"
+        ) || a.created_at.localeCompare(b.created_at)
     );
     const mem = (memRes.data as unknown as Membership[]) ?? [];
     setRows(list);
@@ -136,15 +143,32 @@ export default function DelegatedView({
                   onOpen={setOpenTask}
                   onToggleDone={toggleDone}
                   meta={
-                    row && (
-                      <span
-                        className="whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
-                        title={`Follow-up od ${fmtDate(row.created_at.slice(0, 10))}`}
-                      >
-                        ⏳ {waitingName(row) ? `${waitingName(row)} · ` : ""}
-                        {waitingFor(row.created_at)}
-                      </span>
-                    )
+                    row &&
+                    (() => {
+                      const since = row.waiting_since ?? row.created_at.slice(0, 10);
+                      const until = row.waiting_until ?? null;
+                      const overdue =
+                        until && until < new Date().toISOString().slice(0, 10);
+                      return (
+                        <span
+                          className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${
+                            overdue
+                              ? "bg-danger/15 font-medium text-danger"
+                              : "bg-amber-100 text-amber-800"
+                          }`}
+                          title={
+                            until
+                              ? `Čeká od ${fmtDate(since)}, slíbeno do ${fmtDate(until)}`
+                              : `Follow-up od ${fmtDate(since)}`
+                          }
+                        >
+                          ⏳ {waitingName(row) ? `${waitingName(row)} · ` : ""}
+                          {until
+                            ? `do ${short(until)}${overdue ? " · po termínu" : ""}`
+                            : waitingFor(since)}
+                        </span>
+                      );
+                    })()
                   }
                 />
               );

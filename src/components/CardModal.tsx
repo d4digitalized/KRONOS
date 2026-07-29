@@ -410,10 +410,39 @@ export default function CardModal({
     notifyTasksChanged();
   }
 
-  /** Doplnění osoby k čekání bez osoby (RLS nemá update → delete + insert). */
+  /** Doplnění osoby k čekání bez osoby. */
   async function assignWaiting(value: string) {
-    await supabase.from("task_followups").delete().eq("task_id", task.id);
-    await startWaiting(value);
+    if (!value) return;
+    const id = value.slice(2);
+    const { error } = await supabase
+      .from("task_followups")
+      .update({
+        waiting_user_id: value.startsWith("u:") ? id : null,
+        waiting_contact_id: value.startsWith("c:") ? id : null,
+      })
+      .eq("task_id", task.id);
+    if (error) {
+      toast("Změna se nezdařila.", "error");
+      return;
+    }
+    loadFollowup();
+    loadActivity();
+  }
+
+  /** Úprava dat čekání — od kdy / do kdy (slíbený termín dodání). */
+  async function patchFollowup(patch: {
+    waiting_since?: string;
+    waiting_until?: string | null;
+  }) {
+    const { error } = await supabase
+      .from("task_followups")
+      .update(patch)
+      .eq("task_id", task.id);
+    if (error) {
+      toast("Uložení termínu se nezdařilo.", "error");
+      return;
+    }
+    loadFollowup();
   }
 
   /** Nový duch z „➕ založit" v PersonPickeru — jen doplnit do seznamu. */
@@ -937,14 +966,33 @@ export default function CardModal({
                 }`}
               >
                 ⏳ {waitingName}
-                <span className="text-amber-800/60">
-                  od{" "}
-                  {new Date(followup.created_at).toLocaleDateString("cs-CZ", {
-                    day: "numeric",
-                    month: "numeric",
-                  })}
-                </span>
               </span>
+              {/* od kdy čekám / do kdy slíbil dodat — editovatelné */}
+              <label className="flex items-center gap-1 text-xs text-ink-soft/70">
+                od
+                <input
+                  type="date"
+                  value={followup.waiting_since ?? followup.created_at.slice(0, 10)}
+                  disabled={!canClearWaiting}
+                  onChange={(e) =>
+                    e.target.value && patchFollowup({ waiting_since: e.target.value })
+                  }
+                  className="input px-1.5 py-0.5 text-xs disabled:opacity-70"
+                />
+              </label>
+              <label className="flex items-center gap-1 text-xs text-ink-soft/70">
+                do
+                <input
+                  type="date"
+                  value={followup.waiting_until ?? ""}
+                  disabled={!canClearWaiting}
+                  title="Do kdy slíbil/a dodat"
+                  onChange={(e) =>
+                    patchFollowup({ waiting_until: e.target.value || null })
+                  }
+                  className="input px-1.5 py-0.5 text-xs disabled:opacity-70"
+                />
+              </label>
               {/* čekání bez osoby (přetažení do Waiting on) — doplnit, na koho */}
               {!followup.waiting_user_id &&
                 !followup.waiting_contact_id &&
