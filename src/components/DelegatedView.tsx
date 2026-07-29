@@ -8,24 +8,48 @@ import { pingNotifyEmails } from "@/lib/notify";
 import { fmtDate } from "@/lib/format";
 import { cacheGet, cacheSet } from "@/lib/viewCache";
 import { TASKS_CHANGED_EVENT } from "@/lib/tasksChanged";
-import TaskRow, { TaskGroup, dueBuckets } from "@/components/TaskRow";
+import TaskRow, { TaskGroup } from "@/components/TaskRow";
 import type { Membership, Task, TaskFollowup } from "@/lib/types";
 
 // Modal se načte až při otevření karty — nezatěžuje základní bundle routy.
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
 
-/** „čeká dnes / 1 den / 3 dny / 12 dní" — od data waiting_since (fallback vznik) */
-function waitingFor(since: string): string {
-  const days = Math.floor((Date.now() - new Date(since).getTime()) / 86400000);
-  if (days <= 0) return "čeká ode dneška";
-  if (days === 1) return "čeká 1 den";
-  if (days < 5) return `čeká ${days} dny`;
-  return `čeká ${days} dní`;
-}
-
 const D_M = { day: "numeric", month: "numeric" } as const;
 function short(date: string): string {
   return new Date(`${date}T00:00`).toLocaleDateString("cs-CZ", D_M);
+}
+
+function isoDay(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+type WaitBucket = { key: string; label: string; rows: TaskFollowup[]; accent?: boolean };
+
+/** Seskupení podle slíbeného termínu „do kdy" (waiting_until), ne podle
+    termínu úkolu. Bez slíbeného data padá follow-up na konec. */
+function waitBuckets(rows: TaskFollowup[]): WaitBucket[] {
+  const now = new Date();
+  const today = isoDay(now);
+  const sunday = new Date(now);
+  sunday.setDate(now.getDate() + ((7 - now.getDay()) % 7));
+  const endOfWeek = isoDay(sunday);
+
+  const groups: WaitBucket[] = [
+    { key: "overdue", label: "Po slíbeném termínu", rows: [], accent: true },
+    { key: "today", label: "Slíbeno dnes", rows: [] },
+    { key: "week", label: "Slíbeno tento týden", rows: [] },
+    { key: "later", label: "Slíbeno později", rows: [] },
+    { key: "nodate", label: "Bez slíbeného termínu", rows: [] },
+  ];
+  for (const r of rows) {
+    const until = r.waiting_until ?? null;
+    if (!until) groups[4].rows.push(r);
+    else if (until < today) groups[0].rows.push(r);
+    else if (until === today) groups[1].rows.push(r);
+    else if (until <= endOfWeek) groups[2].rows.push(r);
+    else groups[3].rows.push(r);
+  }
+  return groups.filter((g) => g.rows.length > 0);
 }
 
 export default function DelegatedView({
@@ -107,9 +131,8 @@ export default function DelegatedView({
 
   if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
 
-  // stejné termínové skupiny jako Moje úkoly; chip čekání per úkol
-  const followupByTask = new Map(rows.map((r) => [r.task_id, r]));
-  const groups = dueBuckets(rows.map((r) => r.tasks!).filter(Boolean));
+  // skupiny podle slíbeného termínu „do kdy" (rows už seřazené v load())
+  const groups = waitBuckets(rows.filter((r) => r.tasks));
 
   return (
     <div className="w-full space-y-4">
@@ -131,44 +154,36 @@ export default function DelegatedView({
           <TaskGroup
             key={group.key}
             label={group.label}
-            count={group.tasks.length}
+            count={group.rows.length}
             accent={group.accent}
           >
-            {group.tasks.map((task) => {
-              const row = followupByTask.get(task.id);
+            {group.rows.map((row) => {
+              const since = row.waiting_since ?? row.created_at.slice(0, 10);
+              const until = row.waiting_until ?? null;
+              const overdue =
+                until && until < new Date().toISOString().slice(0, 10);
               return (
                 <TaskRow
-                  key={task.id}
-                  task={task}
+                  key={row.task_id}
+                  task={row.tasks!}
                   onOpen={setOpenTask}
                   onToggleDone={toggleDone}
                   meta={
-                    row &&
-                    (() => {
-                      const since = row.waiting_since ?? row.created_at.slice(0, 10);
-                      const until = row.waiting_until ?? null;
-                      const overdue =
-                        until && until < new Date().toISOString().slice(0, 10);
-                      return (
-                        <span
-                          className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${
-                            overdue
-                              ? "bg-danger/15 font-medium text-danger"
-                              : "bg-amber-100 text-amber-800"
-                          }`}
-                          title={
-                            until
-                              ? `Čeká od ${fmtDate(since)}, slíbeno do ${fmtDate(until)}`
-                              : `Follow-up od ${fmtDate(since)}`
-                          }
-                        >
-                          ⏳ {waitingName(row) ? `${waitingName(row)} · ` : ""}
-                          {until
-                            ? `do ${short(until)}${overdue ? " · po termínu" : ""}`
-                            : waitingFor(since)}
-                        </span>
-                      );
-                    })()
+                    <span
+                      className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${
+                        overdue
+                          ? "bg-danger/15 font-medium text-danger"
+                          : "bg-amber-100 text-amber-800"
+                      }`}
+                      title={`Čeká od ${fmtDate(since)}${
+                        until ? `, slíbeno do ${fmtDate(until)}` : ""
+                      }`}
+                    >
+                      ⏳ {waitingName(row) ? `${waitingName(row)} · ` : ""}
+                      od {short(since)}
+                      {until ? ` do ${short(until)}` : ""}
+                      {overdue ? " · po termínu" : ""}
+                    </span>
                   }
                 />
               );
