@@ -126,6 +126,7 @@ export default function CardModal({
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [activity, setActivity] = useState<TaskActivity[]>([]);
   const [newComment, setNewComment] = useState("");
+  const [sending, setSending] = useState(false); // odesílání komentáře
   const [labels, setLabels] = useState<Label[]>([]);
   const [taskLabels, setTaskLabels] = useState<Set<string>>(new Set());
   const [newLabel, setNewLabel] = useState("");
@@ -143,6 +144,8 @@ export default function CardModal({
   // něco se uložilo → při zavření musí parent přenačíst seznam
   const changedRef = useRef(false);
   const closeRef = useRef<() => void>(() => {});
+  // debounce autosave popisu — ukládá se během psaní, ne až při opuštění pole
+  const descTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   // našeptávač @zmínek v komentáři
   const commentRef = useRef<HTMLInputElement>(null);
@@ -157,6 +160,20 @@ export default function CardModal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // popis se ukládá sám ~1 s po posledním úhozu (i bez opuštění pole)
+  useEffect(() => {
+    if (description === savedRef.current.description) return;
+    if (descTimer.current) clearTimeout(descTimer.current);
+    descTimer.current = setTimeout(() => {
+      savedRef.current.description = description;
+      autosave({ description });
+    }, 1000);
+    return () => {
+      if (descTimer.current) clearTimeout(descTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [description]);
 
   const loadComments = useCallback(async () => {
     const { data } = await supabase
@@ -493,6 +510,7 @@ export default function CardModal({
   }
 
   function saveDescription() {
+    if (descTimer.current) clearTimeout(descTimer.current);
     if (description === savedRef.current.description) return;
     savedRef.current.description = description;
     autosave({ description });
@@ -679,12 +697,22 @@ export default function CardModal({
   async function addComment(e: React.FormEvent) {
     e.preventDefault();
     setMentionQuery(null);
-    if (!newComment.trim()) return;
-    await supabase.from("task_comments").insert({
+    const body = newComment.trim();
+    if (!body || sending) return;
+    setSending(true);
+    // author_id nastavíme výslovně (nespoléháme na auth.uid() default, který
+    // při krátkém výpadku session selže) a text NEmažeme, dokud nemáme jistotu
+    const { error } = await supabase.from("task_comments").insert({
       workspace_id: task.workspace_id,
       task_id: task.id,
-      body: newComment.trim(),
+      author_id: userId,
+      body,
     });
+    setSending(false);
+    if (error) {
+      toast("Komentář se nepodařilo uložit — zkus to znovu.", "error");
+      return; // text zůstane v poli, uživatel o něj nepřijde
+    }
     setNewComment("");
     pingNotifyEmails();
     loadComments();
@@ -1313,9 +1341,10 @@ export default function CardModal({
             </div>
             <button
               type="submit"
-              className="btn-primary"
+              disabled={sending || !newComment.trim()}
+              className="btn-primary disabled:opacity-60"
             >
-              Odeslat
+              {sending ? "…" : "Odeslat"}
             </button>
             </form>
           </div>
