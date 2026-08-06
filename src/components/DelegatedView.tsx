@@ -195,8 +195,22 @@ export default function DelegatedView({
             {group.rows.map((row) => {
               const since = row.waiting_since ?? row.created_at.slice(0, 10);
               const until = row.waiting_until ?? null;
-              const overdue =
-                until && until < new Date().toISOString().slice(0, 10);
+              const today = new Date().toISOString().slice(0, 10);
+              const overdue = until && until < today;
+              // o kolik dní je slíbený termín po termínu
+              const overdueDays = overdue
+                ? Math.round(
+                    (new Date(`${today}T00:00`).getTime() -
+                      new Date(`${until}T00:00`).getTime()) /
+                      86400000
+                  )
+                : 0;
+              const overdueText =
+                overdueDays === 1
+                  ? "1 den po termínu"
+                  : overdueDays < 5
+                    ? `${overdueDays} dny po termínu`
+                    : `${overdueDays} dní po termínu`;
               return (
                 <TaskRow
                   key={row.task_id}
@@ -217,7 +231,7 @@ export default function DelegatedView({
                       ⏳ {waitingName(row) ? `${waitingName(row)} · ` : ""}
                       od {short(since)}
                       {until ? ` do ${short(until)}` : ""}
-                      {overdue ? " · po termínu" : ""}
+                      {overdue ? ` · ${overdueText}` : ""}
                     </span>
                   }
                 />
