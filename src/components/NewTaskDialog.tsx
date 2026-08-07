@@ -52,6 +52,7 @@ export default function NewTaskDialog({
   // vedoucí úkolu — nastavuje jen admin (hlídá i DB trigger)
   const [lead, setLead] = useState<PersonRef | null>(null);
   const [waitSel, setWaitSel] = useState<PersonRef | null>(null);
+  const [waitUntil, setWaitUntil] = useState(""); // do kdy slíbil dodat
   const [assignToo, setAssignToo] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
   const [dueDate, setDueDate] = useState("");
@@ -118,6 +119,7 @@ export default function NewTaskDialog({
     setAssignee(null);
     setLead(null);
     setWaitSel(null);
+    setWaitUntil("");
     setAssignToo(false);
     setIsPrivate(false);
     setProjects([]);
@@ -267,6 +269,7 @@ export default function NewTaskDialog({
         created_by: userId,
         waiting_user_id: isMemberRef(waitSel) ? id : null,
         waiting_contact_id: isMemberRef(waitSel) ? null : id,
+        waiting_until: waitUntil || null,
       });
       if (fuError) toast("Follow-up se nepodařilo nastavit.", "error");
     }
@@ -390,6 +393,19 @@ export default function NewTaskDialog({
                 ariaLabel="Čekám na"
                 iconPath={HOURGLASS_ICON}
               />
+              {/* do kdy slíbil dodat — jen když na někoho čekám */}
+              {waitSel && (
+                <label className="flex items-center gap-1 text-sm text-ink-soft">
+                  do
+                  <input
+                    type="date"
+                    value={waitUntil}
+                    onChange={(e) => setWaitUntil(e.target.value)}
+                    title="Do kdy slíbil/a dodat"
+                    className="input px-2 py-1 text-sm"
+                  />
+                </label>
+              )}
             </div>
 
             {/* čekaný člověk zatím není řešitel → nabídni zadání */}
