@@ -19,8 +19,10 @@ type QueueRow = {
 };
 
 function compose(n: QueueRow): { subject: string; html: string } {
-  const link = n.project_id
-    ? `${APP_URL}/w/${n.workspace_id}/b/${n.project_id}`
+  // /t/<id> dohledá úkol a otevře jeho kartu přímo (nástěnka i úkol bez
+  // projektu); bez task_id (nemělo by nastat) padáme na firmu
+  const link = n.task_id
+    ? `${APP_URL}/t/${n.task_id}`
     : `${APP_URL}/w/${n.workspace_id}`;
   const title = escapeHtml(n.task_title);
   const actor = escapeHtml(n.actor_name || "Někdo");
