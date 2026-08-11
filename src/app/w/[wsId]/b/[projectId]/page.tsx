@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { redirectTimeOnlyMember } from "@/lib/auth";
 import BoardView from "@/components/BoardView";
 
 export default async function BoardPage({
@@ -10,6 +11,7 @@ export default async function BoardPage({
   searchParams: Promise<{ task?: string }>;
 }) {
   const { wsId, projectId } = await params;
+  await redirectTimeOnlyMember(wsId);
   const { task: initialTaskId } = await searchParams;
   const supabase = await createClient();
   const {

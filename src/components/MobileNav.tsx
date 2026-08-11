@@ -27,6 +27,7 @@ export default function MobileNav({
   canDelegate = false,
   canTaskforce = false,
   canNotes = false,
+  timeOnly = false,
   userId,
   userName,
   userProfile,
@@ -38,6 +39,7 @@ export default function MobileNav({
   canDelegate?: boolean;
   canTaskforce?: boolean;
   canNotes?: boolean;
+  timeOnly?: boolean;
   userId?: string;
   userName: string;
   userProfile?: Profile | null;
@@ -47,14 +49,15 @@ export default function MobileNav({
   const [mounted, setMounted] = useState(false); // drawer v DOM
   const [shown, setShown] = useState(false); // stav pro animaci
 
-  const primary = primaryNavItems(wsId, canDelegate, canTaskforce);
+  const primary = primaryNavItems(wsId, canDelegate, canTaskforce, timeOnly);
   const sections = buildNavSections(
     wsId,
     isAdmin,
     isSuperAdmin,
     canDelegate,
     canTaskforce,
-    canNotes
+    canNotes,
+    timeOnly
   );
   const isActive = (href: string) => isNavActive(pathname, href, wsId);
 

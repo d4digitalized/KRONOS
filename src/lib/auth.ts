@@ -29,6 +29,30 @@ export async function requireWsMember(wsId: string) {
   return { user, isAdmin: !!isAdmin };
 }
 
+/** Člen „jen měření času" (time_only) patří na /time — obsahové stránky
+    firmy ho tam přesměrují. Adminům se flag ignoruje. Volat na začátku
+    každé /w/[wsId]/* stránky kromě /time. */
+export async function redirectTimeOnlyMember(wsId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const [{ data: profile }, { data: membership }] = await Promise.all([
+    supabase.from("profiles").select("is_super_admin").eq("id", user.id).single(),
+    supabase
+      .from("workspace_members")
+      .select("role, time_only")
+      .eq("workspace_id", wsId)
+      .eq("user_id", user.id)
+      .maybeSingle(),
+  ]);
+  const isAdmin = (profile?.is_super_admin ?? false) || membership?.role === "admin";
+  if (!isAdmin && membership?.time_only) redirect(`/w/${wsId}/time`);
+  return user;
+}
+
 export async function requireSuperAdmin() {
   const supabase = await createClient();
   const {

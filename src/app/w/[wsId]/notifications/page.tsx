@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { redirectTimeOnlyMember } from "@/lib/auth";
 import NotificationsView from "@/components/NotificationsView";
 
 export default async function NotificationsPage({
@@ -7,7 +8,8 @@ export default async function NotificationsPage({
 }: {
   params: Promise<{ wsId: string }>;
 }) {
-  await params; // layout ověřuje workspace; notifikace jsou osobní napříč ws
+  const { wsId } = await params; // layout ověřuje workspace; notifikace jsou osobní
+  await redirectTimeOnlyMember(wsId);
   const supabase = await createClient();
   const {
     data: { user },

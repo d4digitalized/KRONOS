@@ -41,6 +41,8 @@ export type Membership = {
   can_hr?: boolean;
   /** osobní poznámky v Masteru; default vypnuto všem. Nastavuje admin. */
   can_notes?: boolean;
+  /** „jen měření času" — osekané rozhraní: pouze timer a Report. Nastavuje admin. */
+  time_only?: boolean;
   workspaces?: Workspace;
   profiles?: Profile;
 };

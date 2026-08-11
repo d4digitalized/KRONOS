@@ -178,7 +178,13 @@ export async function setMemberNotifyEmail(
 export async function setMemberFlag(
   wsId: string,
   userId: string,
-  flag: "can_delegate" | "can_hide" | "notify_enabled" | "can_hr" | "can_notes",
+  flag:
+    | "can_delegate"
+    | "can_hide"
+    | "notify_enabled"
+    | "can_hr"
+    | "can_notes"
+    | "time_only",
   value: boolean
 ): Promise<{ ok?: true; error?: string }> {
   const supabase = await createClient();

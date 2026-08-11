@@ -48,6 +48,8 @@ export default async function WorkspaceLayout({
   const canTaskforce = isAdmin || (grantCount ?? 0) > 0;
   // Poznámky: osobní scratchpad, jen komu to admin zapnul (i adminovi sobě)
   const canNotes = !!membership?.can_notes;
+  // „jen měření času": osekané rozhraní (adminům se flag ignoruje)
+  const timeOnly = !isAdmin && !!membership?.time_only;
 
   // ke každé mé firmě i práva v ní — přepínač v „Nový úkol" je potřebuje,
   // canDelegate/canHide se firmu od firmy liší
@@ -79,6 +81,7 @@ export default async function WorkspaceLayout({
         canDelegate={canDelegate}
         canTaskforce={canTaskforce}
         canNotes={canNotes}
+        timeOnly={timeOnly}
         userId={user.id}
         userName={profile?.full_name || profile?.email || ""}
         userProfile={profile}
@@ -96,11 +99,15 @@ export default async function WorkspaceLayout({
         canDelegate={canDelegate}
         canTaskforce={canTaskforce}
         canNotes={canNotes}
+        timeOnly={timeOnly}
         userId={user.id}
         userName={profile?.full_name || profile?.email || ""}
         userProfile={profile}
       />
-      <NewTaskFab wsId={wsId} userId={user.id} workspaces={wsOptions} />
+      {/* „jen měření času": žádné zakládání úkolů */}
+      {!timeOnly && (
+        <NewTaskFab wsId={wsId} userId={user.id} workspaces={wsOptions} />
+      )}
       {/* tečky projektů dědí barvu své kategorie */}
       <ProjectColorsLoader wsId={wsId} />
     </div>

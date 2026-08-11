@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { redirectTimeOnlyMember } from "@/lib/auth";
 import DelegatedView from "@/components/DelegatedView";
 
 export default async function DelegatedPage({
@@ -8,6 +9,7 @@ export default async function DelegatedPage({
   params: Promise<{ wsId: string }>;
 }) {
   const { wsId } = await params;
+  await redirectTimeOnlyMember(wsId);
   const supabase = await createClient();
   const {
     data: { user },

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { redirectTimeOnlyMember } from "@/lib/auth";
 import MyTasksView from "@/components/MyTasksView";
 
 export default async function MyTasksPage({
@@ -8,6 +9,7 @@ export default async function MyTasksPage({
   params: Promise<{ wsId: string }>;
 }) {
   const { wsId } = await params;
+  await redirectTimeOnlyMember(wsId);
   const supabase = await createClient();
   const {
     data: { user },

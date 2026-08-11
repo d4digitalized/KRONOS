@@ -518,6 +518,15 @@ export default function MembersView({
                     <MemberFlagToggle
                       wsId={wsId}
                       userId={member.user_id}
+                      flag="time_only"
+                      title="Jen měření času"
+                      hint="Osekané rozhraní: člen vidí jen timer a Report, žádné úkoly. Úkoly na něj jde dál věšet — jen je nevidí."
+                      initial={member.time_only ?? false}
+                      onSaved={load}
+                    />
+                    <MemberFlagToggle
+                      wsId={wsId}
+                      userId={member.user_id}
                       flag="can_hr"
                       title="HR"
                       hint="Odemkne výkazy přidělených lidí v Přehledech včetně exportu do PDF (bez sazeb — ty vidí jen admin)."
@@ -634,7 +643,13 @@ function MemberFlagToggle({
 }: {
   wsId: string;
   userId: string;
-  flag: "can_delegate" | "can_hide" | "notify_enabled" | "can_hr" | "can_notes";
+  flag:
+    | "can_delegate"
+    | "can_hide"
+    | "notify_enabled"
+    | "can_hr"
+    | "can_notes"
+    | "time_only";
   title: string;
   hint: string;
   initial: boolean;

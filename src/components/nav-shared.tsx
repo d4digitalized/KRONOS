@@ -66,7 +66,17 @@ export function buildNavSections(
   canDelegate = false,
   canTaskforce = false,
   canNotes = false,
+  timeOnly = false,
 ): NavSection[] {
+  // „jen měření času": osekané rozhraní — pouze Report (timer žije v liště)
+  if (timeOnly) {
+    return [
+      {
+        title: "Měření času",
+        items: [{ href: `/w/${wsId}/time`, label: "Report", icon: "clock" }],
+      },
+    ];
+  }
   return [
     {
       // Master — co řeším teď, napříč všemi firmami
@@ -150,7 +160,11 @@ export function primaryNavItems(
   wsId: string,
   canDelegate = false,
   canTaskforce = false,
+  timeOnly = false,
 ): NavItem[] {
+  if (timeOnly) {
+    return [{ href: `/w/${wsId}/time`, label: "Report", icon: "clock" }];
+  }
   return [
     { href: `/w/${wsId}/inbox`, label: "Inbox", icon: "inbox", badge: true },
     ...(canDelegate
