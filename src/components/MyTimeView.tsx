@@ -7,7 +7,7 @@ import { dayKey, entrySeconds, fmtDuration, fmtTime } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { confirmDialog } from "@/lib/confirm";
 import Picker from "@/components/Picker";
-import ProjectPicker from "@/components/ProjectPicker";
+import ProjectPicker, { ProjectDot } from "@/components/ProjectPicker";
 import type { Project, Task, TimeEntry } from "@/lib/types";
 
 const CARD_ICON = "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM7 9h10M7 13h6";
@@ -322,8 +322,14 @@ export default function MyTimeView({
                         <p className="truncate text-sm">
                           {entry.tasks?.title || entry.description || "(bez popisu)"}
                         </p>
-                        <p className="text-xs text-ink-soft/70">
-                          {entry.projects?.name ?? "Bez projektu"}
+                        <p className="flex items-center gap-1.5 text-xs text-ink-soft/70">
+                          <ProjectDot
+                            id={entry.project_id ?? null}
+                            className="h-2 w-2"
+                          />
+                          <span className="truncate">
+                            {entry.projects?.name ?? "Bez projektu"}
+                          </span>
                         </p>
                       </div>
                       <span className="text-xs text-ink-soft">
