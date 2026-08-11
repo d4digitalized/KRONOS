@@ -35,6 +35,8 @@ export default function MyTimeView({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editStart, setEditStart] = useState("");
   const [editStop, setEditStop] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editProject, setEditProject] = useState<string | null>(null);
 
   // ruční zápis
   const [addProject, setAddProject] = useState("");
@@ -127,6 +129,8 @@ export default function MyTimeView({
     setEditingId(entry.id);
     setEditStart(toLocalInput(entry.started_at));
     setEditStop(entry.stopped_at ? toLocalInput(entry.stopped_at) : "");
+    setEditDesc(entry.description ?? "");
+    setEditProject(entry.project_id ?? null);
   }
 
   async function saveEdit(entry: TimeEntry) {
@@ -136,13 +140,24 @@ export default function MyTimeView({
       toast("Konec záznamu musí být po začátku.", "error");
       return;
     }
-    await supabase
+    const patch: Record<string, unknown> = {
+      started_at: started.toISOString(),
+      stopped_at: stopped ? stopped.toISOString() : entry.stopped_at,
+      description: editDesc.trim(),
+    };
+    // přeřazení do jiného projektu odpojí kartu (patří k původnímu projektu)
+    if ((entry.project_id ?? null) !== editProject) {
+      patch.project_id = editProject;
+      patch.task_id = null;
+    }
+    const { error } = await supabase
       .from("time_entries")
-      .update({
-        started_at: started.toISOString(),
-        stopped_at: stopped ? stopped.toISOString() : entry.stopped_at,
-      })
+      .update(patch)
       .eq("id", entry.id);
+    if (error) {
+      toast("Uložení záznamu se nezdařilo.", "error");
+      return;
+    }
     setEditingId(null);
     load();
   }
@@ -258,16 +273,22 @@ export default function MyTimeView({
             <div className="divide-y divide-line/50">
               {dayEntries.map((entry) => (
                 <div key={entry.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm">
-                      {entry.tasks?.title || entry.description || "(bez popisu)"}
-                    </p>
-                    <p className="text-xs text-ink-soft/70">
-                      {entry.projects?.name ?? "Bez projektu"}
-                    </p>
-                  </div>
                   {editingId === entry.id ? (
                     <>
+                      <input
+                        type="text"
+                        value={editDesc}
+                        onChange={(e) => setEditDesc(e.target.value)}
+                        placeholder="Popis…"
+                        aria-label="Popis záznamu"
+                        className="input min-w-36 flex-1 px-2 py-1 text-sm"
+                      />
+                      <ProjectPicker
+                        projects={projects}
+                        value={editProject}
+                        onChange={setEditProject}
+                        align="right"
+                      />
                       <input
                         type="datetime-local"
                         value={editStart}
@@ -297,6 +318,14 @@ export default function MyTimeView({
                     </>
                   ) : (
                     <>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm">
+                          {entry.tasks?.title || entry.description || "(bez popisu)"}
+                        </p>
+                        <p className="text-xs text-ink-soft/70">
+                          {entry.projects?.name ?? "Bez projektu"}
+                        </p>
+                      </div>
                       <span className="text-xs text-ink-soft">
                         {fmtTime(entry.started_at)}
                         {" – "}
