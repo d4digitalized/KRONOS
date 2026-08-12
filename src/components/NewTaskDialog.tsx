@@ -225,7 +225,18 @@ export default function NewTaskDialog({
 
     if (error || !created) {
       setSaving(false);
-      toast("Úkol se nepodařilo přidat.", "error");
+      // RLS vrací nic neříkající kód — přelož na srozumitelnou příčinu,
+      // ostatní chyby ukaž doslova, ať se dají hlásit
+      const rls =
+        error?.code === "42501" ||
+        error?.message.includes("row-level security");
+      console.error("new task insert failed", error);
+      toast(
+        rls
+          ? "Úkol se nepodařilo přidat — nejsi členem vybraného projektu."
+          : `Úkol se nepodařilo přidat${error ? `: ${error.message}` : ""}.`,
+        "error"
+      );
       return;
     }
 
