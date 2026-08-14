@@ -600,7 +600,9 @@ export default function BoardView({
   };
 
   return (
-    <div className="space-y-3">
+    // flex sloupec přes celou výšku — vodorovný scrollbar nástěnky tak
+    // sedí u spodní hrany displeje, ne hned pod sloupci
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="flex items-center gap-2.5 font-display text-lg font-semibold">
           <ProjectDot id={projectId} className="h-3 w-3" />
@@ -697,7 +699,7 @@ export default function BoardView({
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="flex items-start gap-3 overflow-x-auto scroll-touch snap-x snap-proximity pb-4">
+        <div className="flex min-h-0 flex-1 items-start gap-3 overflow-x-auto scroll-touch snap-x snap-proximity pb-1">
           <SortableContext
             items={columns.map((c) => colDndId(c.id))}
             strategy={horizontalListSortingStrategy}

@@ -89,7 +89,10 @@ export default async function WorkspaceLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         <TimerBar wsId={wsId} userId={user.id} />
         {/* spodní padding drží obsah nad mobilním tab-barem (jen pod md) */}
-        <main className="flex-1 space-y-4 p-4 pb-24 md:pb-4">{children}</main>
+        {/* flex-col: stránka (nástěnka) se může roztáhnout až ke spodní hraně */}
+        <main className="flex flex-1 flex-col space-y-4 p-4 pb-24 md:pb-4">
+          {children}
+        </main>
       </div>
       <MobileNav
         wsId={wsId}
