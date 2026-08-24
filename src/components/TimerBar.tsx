@@ -283,11 +283,25 @@ export default function TimerBar({
     if (running) await stop();
   }
 
-  function closeFocus() {
-    // zavření ✕: běžící timer běží dál v liště; rozdělaná pauza končí
-    // (záznamy jsou uložené, jen se už nesčítá seance)
+  async function closeFocus() {
+    // zavření ✕ nikdy nenechá timer vypnutý: běžící běží dál, pauza se
+    // před zavřením zase rozběhne (končí jen sčítání seance ve velkém čase)
     setFocusOpen(false);
+    if (!running && pausedFocus) await resumeFocus();
     setPausedFocus(null);
+  }
+
+  /** Popis dopsaný ve focus módu — do běžícího záznamu i do meta pauzy. */
+  async function saveFocusDescription(text: string) {
+    const value = text.trim();
+    if (pausedFocus) setPausedFocus({ ...pausedFocus, description: value });
+    if (running) {
+      if (value === (running.description ?? "").trim()) return;
+      setRunning({ ...running, description: value } as TimeEntry);
+      if (!running.task_id) setDescription(value); // ať sedí i pole v liště
+      if (running.id !== "optimistic")
+        await updateRunningEntry(supabase, running.id, { description: value });
+    }
   }
 
   async function saveDescription() {
@@ -459,10 +473,13 @@ export default function TimerBar({
         <FocusMode
           running={running}
           accumSeconds={pausedFocus?.accum ?? 0}
-          title={
+          taskTitle={
+            running ? (running.tasks?.title ?? null) : pausedFocus?.title || null
+          }
+          description={
             running
-              ? running.tasks?.title || running.description || "Měřím čas"
-              : pausedFocus?.title || pausedFocus?.description || "Měřím čas"
+              ? (running.description ?? "")
+              : (pausedFocus?.description ?? "")
           }
           projectName={
             running
@@ -474,6 +491,7 @@ export default function TimerBar({
           onResume={resumeFocus}
           onStop={stopFocus}
           onClose={closeFocus}
+          onSaveDescription={saveFocusDescription}
         />
       )}
     </header>

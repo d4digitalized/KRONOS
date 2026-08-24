@@ -14,26 +14,34 @@ const THEME_KEY = "kronos:focus-theme";
 export default function FocusMode({
   running,
   accumSeconds,
-  title,
+  taskTitle,
+  description,
   projectName,
   busy,
   onPause,
   onResume,
   onStop,
   onClose,
+  onSaveDescription,
 }: {
   running: TimeEntry | null;
   /** sečtené dřívější úseky téhle seance (před pauzami) */
   accumSeconds: number;
-  title: string;
+  /** název karty, když timer běží na úkolu; jinak null */
+  taskTitle: string | null;
+  description: string;
   projectName: string | null;
   busy: boolean;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
   onClose: () => void;
+  onSaveDescription: (text: string) => void;
 }) {
   const [dark, setDark] = useState(true);
+  // rozepsaný popis — ukládá se při opuštění pole / Enterem
+  const [draft, setDraft] = useState(description);
+  useEffect(() => setDraft(description), [description]);
 
   useEffect(() => {
     try {
@@ -126,10 +134,48 @@ export default function FocusMode({
         {projectName && (
           <p className={`text-sm sm:text-base ${soft}`}>{projectName}</p>
         )}
-        {/* úkol je hlavní sdělení — větší než hodiny */}
-        <p className="max-w-5xl text-[clamp(2rem,8vw,5rem)] font-semibold leading-tight">
-          {title}
-        </p>
+        {/* úkol je hlavní sdělení — větší než hodiny. Bez karty jde popis
+            psát rovnou tady, u karty je pod názvem menší pole na poznámku. */}
+        {taskTitle ? (
+          <>
+            <p className="max-w-5xl text-[clamp(2rem,8vw,5rem)] font-semibold leading-tight">
+              {taskTitle}
+            </p>
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => onSaveDescription(draft)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  e.currentTarget.blur();
+                }
+              }}
+              placeholder="doplnit poznámku…"
+              aria-label="Poznámka k záznamu"
+              className={`w-full max-w-2xl bg-transparent text-center text-lg outline-none sm:text-xl ${soft} placeholder:opacity-40`}
+            />
+          </>
+        ) : (
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => onSaveDescription(draft)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                e.currentTarget.blur();
+              }
+            }}
+            placeholder="Na čem děláš?"
+            aria-label="Na čem děláš"
+            className="w-full max-w-5xl bg-transparent text-center text-[clamp(2rem,8vw,5rem)] font-semibold leading-tight outline-none placeholder:opacity-30"
+          />
+        )}
         <p
           className={`font-mono text-[clamp(1.75rem,5vw,3.5rem)] font-semibold leading-none tabular-nums ${
             paused ? "opacity-40" : soft
