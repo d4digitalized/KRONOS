@@ -126,12 +126,13 @@ export default function FocusMode({
         {projectName && (
           <p className={`text-sm sm:text-base ${soft}`}>{projectName}</p>
         )}
-        <p className="max-w-3xl text-2xl font-semibold leading-snug sm:text-4xl">
+        {/* úkol je hlavní sdělení — větší než hodiny */}
+        <p className="max-w-5xl text-[clamp(2rem,8vw,5rem)] font-semibold leading-tight">
           {title}
         </p>
         <p
-          className={`font-mono text-[clamp(4rem,18vw,11rem)] font-semibold leading-none tabular-nums ${
-            paused ? "opacity-40" : ""
+          className={`font-mono text-[clamp(1.75rem,5vw,3.5rem)] font-semibold leading-none tabular-nums ${
+            paused ? "opacity-40" : soft
           }`}
         >
           {fmtClock(seconds)}
