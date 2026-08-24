@@ -121,24 +121,6 @@ export default function FocusMode({
       aria-modal="true"
       aria-label="Focus mode"
     >
-      {/* horní lišta: motiv + zavřít */}
-      <div className="flex items-center justify-between p-4 sm:p-6">
-        <button
-          onClick={toggleTheme}
-          aria-label={dark ? "Přepnout na bílou" : "Přepnout na černou"}
-          className={ghostBtn}
-        >
-          {dark ? "☀ bílá" : "● černá"}
-        </button>
-        <button
-          onClick={onClose}
-          aria-label="Zavřít focus mode"
-          className={ghostBtn}
-        >
-          ✕
-        </button>
-      </div>
-
       {/* střed: projekt, úkol, čas */}
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
         {projectName && (
@@ -160,7 +142,7 @@ export default function FocusMode({
       </div>
 
       {/* ovládání: pauza/pokračovat + stop */}
-      <div className="flex items-center justify-center gap-8 pb-12 sm:pb-16">
+      <div className="flex items-center justify-center gap-8 pb-4 sm:pb-6">
         <button
           onClick={paused ? onResume : onPause}
           disabled={busy}
@@ -189,6 +171,24 @@ export default function FocusMode({
           className="flex h-20 w-20 items-center justify-center rounded-full bg-red-600 text-white shadow-lg transition-colors hover:bg-red-500 disabled:opacity-50"
         >
           <span className="block h-7 w-7 rounded-[3px] bg-current" aria-hidden />
+        </button>
+      </div>
+
+      {/* spodní lišta: motiv + zavřít — nahoře nemá nic rušit */}
+      <div className="flex items-center justify-between p-4 sm:p-6">
+        <button
+          onClick={toggleTheme}
+          aria-label={dark ? "Přepnout na bílou" : "Přepnout na černou"}
+          className={ghostBtn}
+        >
+          {dark ? "☀ bílá" : "● černá"}
+        </button>
+        <button
+          onClick={onClose}
+          aria-label="Zavřít focus mode"
+          className={ghostBtn}
+        >
+          ✕
         </button>
       </div>
     </div>,
