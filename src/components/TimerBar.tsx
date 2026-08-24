@@ -11,7 +11,18 @@ import {
 } from "@/lib/timer";
 import ProjectPicker, { ProjectDot } from "@/components/ProjectPicker";
 import NotificationsBell from "@/components/NotificationsBell";
+import FocusMode from "@/components/FocusMode";
 import type { Project, TimeEntry } from "@/lib/types";
+
+/** Rozdělaná focus seance: co měřit dál po pauze + sečtené dřívější úseky. */
+type PausedFocus = {
+  project_id: string | null;
+  task_id: string | null;
+  title: string;
+  description: string;
+  projectName: string | null;
+  accum: number;
+};
 
 /** Odlehčený úkol pro našeptávač v liště. */
 type TaskLite = {
@@ -43,6 +54,9 @@ export default function TimerBar({
   // start/stop probíhá — blokuje dvojklik i externí reload, aby optimistický
   // stav nepřeblikával. Ref (ne state), ať ho vidí i listenery bez re-subscribe.
   const busyRef = useRef(false);
+  // focus mode (iPad): fullscreen s velkým časem, pauzou a stopem
+  const [focusOpen, setFocusOpen] = useState(false);
+  const [pausedFocus, setPausedFocus] = useState<PausedFocus | null>(null);
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -202,10 +216,78 @@ export default function TimerBar({
     busyRef.current = true;
     setBusy(true);
     setRunning(null); // optimisticky; při chybě to load() vrátí zpět
+    setPausedFocus(null); // stop ukončuje i rozdělanou focus seanci
     await stopRunningTimer(supabase, userId);
     await load();
     busyRef.current = false;
     setBusy(false);
+  }
+
+  // ------------------------------------------------------------ focus mode
+  // Pauza = zastavit a uložit běžící záznam (přestávka se nepočítá do práce);
+  // Pokračovat = nový záznam se stejným úkolem/projektem. Velký čas ve focus
+  // módu sčítá úseky celé seance.
+
+  async function pauseFocus() {
+    if (busyRef.current || !running) return;
+    busyRef.current = true;
+    setBusy(true);
+    setPausedFocus({
+      project_id: running.project_id ?? null,
+      task_id: running.task_id ?? null,
+      title: running.tasks?.title ?? "",
+      description: running.description ?? "",
+      projectName: running.projects?.name ?? null,
+      accum:
+        (pausedFocus?.accum ?? 0) + entrySeconds(running.started_at, null),
+    });
+    setRunning(null);
+    await stopRunningTimer(supabase, userId, { silent: true });
+    window.dispatchEvent(new Event(TIMER_CHANGED_EVENT));
+    await load();
+    busyRef.current = false;
+    setBusy(false);
+  }
+
+  async function resumeFocus() {
+    if (busyRef.current || !pausedFocus || running) return;
+    busyRef.current = true;
+    setBusy(true);
+    setRunning({
+      id: "optimistic",
+      workspace_id: wsId,
+      user_id: userId,
+      project_id: pausedFocus.project_id,
+      task_id: pausedFocus.task_id,
+      description: pausedFocus.description,
+      started_at: new Date().toISOString(),
+      stopped_at: null,
+      tasks: pausedFocus.title ? { title: pausedFocus.title } : null,
+      projects: pausedFocus.projectName ? { name: pausedFocus.projectName } : null,
+    } as unknown as TimeEntry);
+    await startTimer(supabase, userId, {
+      workspace_id: wsId,
+      project_id: pausedFocus.project_id,
+      task_id: pausedFocus.task_id,
+      task_title: pausedFocus.title || undefined,
+      description: pausedFocus.description,
+    });
+    await load();
+    busyRef.current = false;
+    setBusy(false);
+  }
+
+  async function stopFocus() {
+    setFocusOpen(false);
+    setPausedFocus(null);
+    if (running) await stop();
+  }
+
+  function closeFocus() {
+    // zavření ✕: běžící timer běží dál v liště; rozdělaná pauza končí
+    // (záznamy jsou uložené, jen se už nesčítá seance)
+    setFocusOpen(false);
+    setPausedFocus(null);
   }
 
   async function saveDescription() {
@@ -325,6 +407,29 @@ export default function TimerBar({
           {running ? fmtClock(entrySeconds(running.started_at, null)) : "0:00:00"}
         </span>
 
+        {/* focus mode — fullscreen s velkým časem (iPad na stole) */}
+        {running && (
+          <button
+            onClick={() => setFocusOpen(true)}
+            aria-label="Focus mode přes celou obrazovku"
+            title="Focus mode — velký čas přes celou obrazovku"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-ink-soft/70 hover:bg-black/5 hover:text-ink"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-5 w-5"
+              aria-hidden
+            >
+              <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+            </svg>
+          </button>
+        )}
+
         {running ? (
           <button
             onClick={stop}
@@ -349,6 +454,28 @@ export default function TimerBar({
 
         <NotificationsBell wsId={wsId} userId={userId} />
       </div>
+
+      {focusOpen && (running || pausedFocus) && (
+        <FocusMode
+          running={running}
+          accumSeconds={pausedFocus?.accum ?? 0}
+          title={
+            running
+              ? running.tasks?.title || running.description || "Měřím čas"
+              : pausedFocus?.title || pausedFocus?.description || "Měřím čas"
+          }
+          projectName={
+            running
+              ? (running.projects?.name ?? null)
+              : (pausedFocus?.projectName ?? null)
+          }
+          busy={busy}
+          onPause={pauseFocus}
+          onResume={resumeFocus}
+          onStop={stopFocus}
+          onClose={closeFocus}
+        />
+      )}
     </header>
   );
 }
