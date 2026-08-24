@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { entrySeconds, fmtClock } from "@/lib/format";
 import type { TimeEntry } from "@/lib/types";
 
@@ -111,7 +112,9 @@ export default function FocusMode({
       : "border-black/25 text-black/70 hover:border-black/60"
   }`;
 
-  return (
+  // portál do <body>: lišta je sticky se z-40 (vlastní stacking context),
+  // uvnitř ní by overlay překrýval obsah stránky
+  return createPortal(
     <div
       className={`fixed inset-0 z-[100] flex flex-col ${frame}`}
       role="dialog"
@@ -188,6 +191,7 @@ export default function FocusMode({
           <span className="block h-7 w-7 rounded-[3px] bg-current" aria-hidden />
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
