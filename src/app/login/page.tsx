@@ -8,6 +8,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const linkError = searchParams.get("error") === "link";
+  const oauthError = searchParams.get("error") === "oauth";
   // návrat po přihlášení — jen relativní cesta (ne protocol-relative), ať to nejde zneužít k open redirectu
   const nextParam = searchParams.get("next");
   const dest =
@@ -34,6 +35,24 @@ function LoginForm() {
     }
     router.push(dest);
     router.refresh();
+  }
+
+  /** Google (Workspace) OAuth přes Supabase — PKCE, návrat na /auth/callback. */
+  async function handleGoogle() {
+    setError(null);
+    setLoading(true);
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(dest)}`,
+      },
+    });
+    if (error) {
+      setError("Přihlášení přes Google se nepodařilo spustit.");
+      setLoading(false);
+    }
+    // jinak prohlížeč odchází na Google — loading necháme běžet
   }
 
   async function handleReset(e: React.FormEvent) {
@@ -88,6 +107,12 @@ function LoginForm() {
           nebo si nech poslat odkaz pro nastavení hesla.
         </p>
       )}
+      {oauthError && !isReset && (
+        <p className="rounded-lg bg-amber-50 p-2 text-sm text-amber-800">
+          Přihlášení přes Google se nezdařilo. Zkus to znovu, nebo se přihlas
+          e-mailem a heslem.
+        </p>
+      )}
       <label className="block">
         <span className="text-sm font-medium">E-mail</span>
         <input
@@ -118,6 +143,41 @@ function LoginForm() {
             ? "Poslat odkaz na nové heslo"
             : "Přihlásit se"}
       </button>
+      {!isReset && (
+        <>
+          <div className="flex items-center gap-3" aria-hidden>
+            <span className="h-px flex-1 bg-line" />
+            <span className="text-xs text-ink-soft/60">nebo</span>
+            <span className="h-px flex-1 bg-line" />
+          </div>
+          <button
+            type="button"
+            onClick={handleGoogle}
+            disabled={loading}
+            className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium hover:border-ink-soft/40 disabled:opacity-60"
+          >
+            <svg viewBox="0 0 24 24" className="h-4.5 w-4.5 shrink-0" aria-hidden>
+              <path
+                fill="#4285F4"
+                d="M23.5 12.27c0-.85-.08-1.66-.22-2.45H12v4.64h6.45a5.52 5.52 0 0 1-2.4 3.62v3h3.87c2.27-2.09 3.58-5.17 3.58-8.81z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.87-3c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.29v3.1A12 12 0 0 0 12 24z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.27 14.28A7.2 7.2 0 0 1 4.9 12c0-.79.14-1.56.37-2.28v-3.1H1.29a12 12 0 0 0 0 10.76l3.98-3.1z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 4.77c1.76 0 3.34.6 4.59 1.79l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.29 6.62l3.98 3.1C6.22 6.88 8.87 4.77 12 4.77z"
+              />
+            </svg>
+            Pokračovat přes Google
+          </button>
+        </>
+      )}
       <button
         type="button"
         onClick={() => {

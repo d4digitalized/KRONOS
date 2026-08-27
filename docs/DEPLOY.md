@@ -97,3 +97,27 @@ se odřízne) a normálně notifikuje ostatní.
 - zvoneček vedle timeru, obrazovka Notifikace
 - přiřazení kolegy na kartu → zvoneček + (po cronu) e-mail
 - Přehledy: rozklik osoby/projektu, přeřazení záznamu, export PDF výkazu
+
+## 6. Přihlášení přes Google (Workspace)
+
+Tlačítko „Pokračovat přes Google" na /login funguje až po tomhle nastavení:
+
+1. **Google Cloud Console** (projekt pod Workspace organizací DENULAR):
+   APIs & Services → Credentials → **Create OAuth client ID** (Web application).
+   - Authorized redirect URI: `https://<projekt>.supabase.co/auth/v1/callback`
+     (přesnou adresu vypíše Supabase v kroku 2).
+   - OAuth consent screen: typ **Internal** (jen účty ve Workspace) — pak
+     není potřeba žádné ověřování aplikace Googlem.
+2. **Supabase → Authentication → Providers → Google**: Enable, vložit
+   Client ID + Client Secret z kroku 1.
+3. **Supabase → Authentication → URL Configuration**: do *Redirect URLs*
+   přidat `https://kronos.digitalized.cz/auth/callback`
+   (pro vývoj i `http://localhost:3000/auth/callback`).
+4. Účty se párují podle e-mailu: kdo už v Kronosu existuje (pozvánka) a
+   přihlásí se Googlem se stejnou adresou, dostane tentýž účet. Google
+   login s neznámým e-mailem založí prázdný účet bez členství — nikam se
+   nedostane; pokud to vadí, vypni v Supabase „Allow new users to sign up"
+   (pozvánky přes admin API fungují dál).
+
+Poznámka: MCP napojení na Claude se nemění — jede přes vlastní OAuth
+Kronosu nad session, bez ohledu na to, čím se uživatel přihlásil.
