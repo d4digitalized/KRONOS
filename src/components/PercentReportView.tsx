@@ -279,7 +279,7 @@ export default function PercentReportView({
                   onChange={(e) =>
                     setNotes((prev) => ({ ...prev, [project.id]: e.target.value }))
                   }
-                  placeholder="co se dělalo… (nepovinné)"
+                  placeholder="Popis aktivity"
                   aria-label={`Popis činnosti na ${project.name}`}
                   className="input-quiet min-w-40 flex-1 px-2 py-1 text-sm"
                 />
