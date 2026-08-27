@@ -45,6 +45,8 @@ export default function PercentReportView({
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [day, setDay] = useState(() => isoDay(new Date()));
   const [inputs, setInputs] = useState<Record<string, string>>({});
+  // popis činnosti k projektu — stane se popisem záznamu
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -95,6 +97,7 @@ export default function PercentReportView({
   // předvyplnění tabulky podle uloženého výkazu vybraného dne
   useEffect(() => {
     const byProject = new Map<string, number>();
+    const noteByProject = new Map<string, string>();
     for (const e of entries) {
       if (!e.stopped_at || isoDay(new Date(e.started_at)) !== day) continue;
       const key = e.project_id ?? "";
@@ -102,6 +105,9 @@ export default function PercentReportView({
         key,
         (byProject.get(key) ?? 0) + entrySeconds(e.started_at, e.stopped_at)
       );
+      // dřívější generický popis „Denní výkaz X %" nepředvyplňovat
+      if (e.description && !/^Denní výkaz \d+ %$/.test(e.description))
+        noteByProject.set(key, e.description);
     }
     const next: Record<string, string> = {};
     for (const [projectId, secs] of byProject) {
@@ -110,6 +116,7 @@ export default function PercentReportView({
       if (pct > 0) next[projectId] = String(pct);
     }
     setInputs(next);
+    setNotes(Object.fromEntries(noteByProject));
   }, [day, entries]);
 
   const rows = projects.map((p) => {
@@ -152,7 +159,9 @@ export default function PercentReportView({
           workspace_id: wsId,
           project_id: r.project.id,
           user_id: userId,
-          description: `Denní výkaz ${r.pct} %`,
+          // popis činnosti od uživatele; bez něj aspoň procento dne
+          description:
+            (notes[r.project.id] ?? "").trim() || `Denní výkaz ${r.pct} %`,
           started_at: started.toISOString(),
           stopped_at: stopped.toISOString(),
         };
@@ -263,6 +272,17 @@ export default function PercentReportView({
                 <span className="min-w-0 flex-1 truncate text-sm">
                   {project.name}
                 </span>
+                {/* popis činnosti — propíše se do záznamu místo „Denní výkaz X %" */}
+                <input
+                  type="text"
+                  value={notes[project.id] ?? ""}
+                  onChange={(e) =>
+                    setNotes((prev) => ({ ...prev, [project.id]: e.target.value }))
+                  }
+                  placeholder="co se dělalo… (nepovinné)"
+                  aria-label={`Popis činnosti na ${project.name}`}
+                  className="input-quiet min-w-40 flex-1 px-2 py-1 text-sm"
+                />
                 <span className="flex items-center gap-1">
                   <input
                     type="number"
