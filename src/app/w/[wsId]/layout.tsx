@@ -48,8 +48,10 @@ export default async function WorkspaceLayout({
   const canTaskforce = isAdmin || (grantCount ?? 0) > 0;
   // Poznámky: osobní scratchpad, jen komu to admin zapnul (i adminovi sobě)
   const canNotes = !!membership?.can_notes;
-  // „jen měření času": osekané rozhraní (adminům se flag ignoruje)
-  const timeOnly = !isAdmin && !!membership?.time_only;
+  // výkaz v %: místo timeru procentní denní výkaz (zahrnuje osekané rozhraní)
+  const percentReport = !isAdmin && !!membership?.percent_report;
+  // „jen měření času": osekané rozhraní (adminům se flagy ignorují)
+  const timeOnly = (!isAdmin && !!membership?.time_only) || percentReport;
 
   // ke každé mé firmě i práva v ní — přepínač v „Nový úkol" je potřebuje,
   // canDelegate/canHide se firmu od firmy liší
@@ -87,7 +89,8 @@ export default async function WorkspaceLayout({
         userProfile={profile}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TimerBar wsId={wsId} userId={user.id} />
+        {/* výkaz v %: timer schovat — záznamy generuje procentní výkaz */}
+        <TimerBar wsId={wsId} userId={user.id} noTimer={percentReport} />
         {/* spodní padding drží obsah nad mobilním tab-barem (jen pod md) */}
         {/* flex-col: stránka (nástěnka) se může roztáhnout až ke spodní hraně */}
         <main className="flex flex-1 flex-col space-y-4 p-4 pb-24 md:pb-4">

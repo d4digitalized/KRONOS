@@ -43,6 +43,8 @@ export type Membership = {
   can_notes?: boolean;
   /** „jen měření času" — osekané rozhraní: pouze timer a Report. Nastavuje admin. */
   time_only?: boolean;
+  /** denní výkaz v % (8h den) místo timeru; zahrnuje osekané rozhraní. Nastavuje admin. */
+  percent_report?: boolean;
   workspaces?: Workspace;
   profiles?: Profile;
 };

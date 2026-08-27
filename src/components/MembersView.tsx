@@ -527,6 +527,15 @@ export default function MembersView({
                     <MemberFlagToggle
                       wsId={wsId}
                       userId={member.user_id}
+                      flag="percent_report"
+                      title="Výkaz v %"
+                      hint="Místo timeru vyplňuje denní výkaz procenty na projekty (8h den) — rozpadne se do záznamů času. Zahrnuje osekané rozhraní Jen měření času; timer a ruční zápis se schovají."
+                      initial={member.percent_report ?? false}
+                      onSaved={load}
+                    />
+                    <MemberFlagToggle
+                      wsId={wsId}
+                      userId={member.user_id}
                       flag="can_hr"
                       title="HR"
                       hint="Odemkne výkazy přidělených lidí v Přehledech včetně exportu do PDF (bez sazeb — ty vidí jen admin)."
@@ -649,7 +658,8 @@ function MemberFlagToggle({
     | "notify_enabled"
     | "can_hr"
     | "can_notes"
-    | "time_only";
+    | "time_only"
+    | "percent_report";
   title: string;
   hint: string;
   initial: boolean;

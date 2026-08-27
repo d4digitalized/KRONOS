@@ -43,13 +43,14 @@ export async function redirectTimeOnlyMember(wsId: string) {
     supabase.from("profiles").select("is_super_admin").eq("id", user.id).single(),
     supabase
       .from("workspace_members")
-      .select("role, time_only")
+      .select("role, time_only, percent_report")
       .eq("workspace_id", wsId)
       .eq("user_id", user.id)
       .maybeSingle(),
   ]);
   const isAdmin = (profile?.is_super_admin ?? false) || membership?.role === "admin";
-  if (!isAdmin && membership?.time_only) redirect(`/w/${wsId}/time`);
+  if (!isAdmin && (membership?.time_only || membership?.percent_report))
+    redirect(`/w/${wsId}/time`);
   return user;
 }
 

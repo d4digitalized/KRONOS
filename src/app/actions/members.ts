@@ -184,7 +184,8 @@ export async function setMemberFlag(
     | "notify_enabled"
     | "can_hr"
     | "can_notes"
-    | "time_only",
+    | "time_only"
+    | "percent_report",
   value: boolean
 ): Promise<{ ok?: true; error?: string }> {
   const supabase = await createClient();
