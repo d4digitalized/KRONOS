@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
-import { entrySeconds, fmtDuration } from "@/lib/format";
+import { entrySeconds } from "@/lib/format";
 import { ProjectDot } from "@/components/ProjectPicker";
 import type { Project, TimeEntry } from "@/lib/types";
 
@@ -168,7 +168,7 @@ export default function PercentReportView({
     }
     toast(
       blocks.length
-        ? `Výkaz uložen: ${total} % (${fmtDuration((DAY_SECONDS * total) / 100)} h).`
+        ? `Výkaz uložen: ${total} %.`
         : "Výkaz dne vymazán."
     );
     setSaving(false);
@@ -181,7 +181,7 @@ export default function PercentReportView({
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
   return (
-    <div className="w-full max-w-2xl space-y-4">
+    <div className="w-full space-y-4">
       <div>
         <h1 className="font-display text-lg font-semibold">Denní výkaz</h1>
         <p className="text-xs text-ink-soft/70">
@@ -254,7 +254,7 @@ export default function PercentReportView({
       ) : (
         <div className="panel">
           <div className="divide-y divide-line/50">
-            {rows.map(({ project, pct }) => (
+            {rows.map(({ project }) => (
               <label
                 key={project.id}
                 className="flex cursor-pointer items-center gap-2.5 px-3 py-2"
@@ -262,9 +262,6 @@ export default function PercentReportView({
                 <ProjectDot id={project.id} />
                 <span className="min-w-0 flex-1 truncate text-sm">
                   {project.name}
-                </span>
-                <span className="w-14 text-right font-mono text-xs text-ink-soft/60">
-                  {pct > 0 ? `${fmtDuration((DAY_SECONDS * pct) / 100)} h` : ""}
                 </span>
                 <span className="flex items-center gap-1">
                   <input
@@ -295,10 +292,7 @@ export default function PercentReportView({
                 total > 100 ? "font-medium text-danger" : "text-ink-soft"
               }`}
             >
-              Celkem {total} % ·{" "}
-              <span className="font-mono">
-                {fmtDuration((DAY_SECONDS * total) / 100)} h
-              </span>
+              Celkem {total} %
               {total > 100 && " — přes 100 %"}
             </span>
             <button
