@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { confirmDialog } from "@/lib/confirm";
 import { pingNotifyEmails } from "@/lib/notify";
 import { notifyTasksChanged } from "@/lib/tasksChanged";
+import { syncTaskCalendar } from "@/app/actions/calendar";
 import { PRIORITIES, RECURRENCE_OPTIONS, priorityColor } from "@/lib/priority";
 import ProjectPicker, { projectColor } from "@/components/ProjectPicker";
 import PersonPicker, {
@@ -62,6 +63,15 @@ function activityText(a: TaskActivity): string {
     default:
       return "upravil/a kartu";
   }
+}
+
+function localDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function localTime(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function fmtStamp(iso: string): string {
@@ -133,6 +143,16 @@ export default function CardModal({
   const [addingLabel, setAddingLabel] = useState(false);
   const [subtasks, setSubtasks] = useState<Task[]>([]);
   const [newSubtask, setNewSubtask] = useState("");
+  // plánované okno práce → kalendář „Kronos" řešitelů (datum + od–do)
+  const [planDate, setPlanDate] = useState(() =>
+    task.planned_start ? localDate(task.planned_start) : ""
+  );
+  const [planFrom, setPlanFrom] = useState(() =>
+    task.planned_start ? localTime(task.planned_start) : ""
+  );
+  const [planTo, setPlanTo] = useState(() =>
+    task.planned_end ? localTime(task.planned_end) : ""
+  );
   // follow-up „čekám na" — člen nebo externí kontakt (viz CONCEPT-delegovane.md)
   const [followup, setFollowup] = useState<TaskFollowup | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -540,6 +560,35 @@ export default function CardModal({
       return;
     }
     pingNotifyEmails(); // dokončení opakované karty přiřazuje další výskyt
+  }
+
+  /** Plánované okno: uloží se, až jsou vyplněné datum i oba časy; pak se
+      propíše do kalendáře „Kronos" řešitelů. */
+  async function savePlan(date: string, from: string, to: string) {
+    if (!date || !from || !to) return;
+    if (to <= from) {
+      setError("Konec plánu musí být po začátku.");
+      return;
+    }
+    const start = new Date(`${date}T${from}`).toISOString();
+    const end = new Date(`${date}T${to}`).toISOString();
+    const ok = await autosave({ planned_start: start, planned_end: end });
+    if (!ok) return;
+    const res = await syncTaskCalendar(task.id);
+    if (res.error) toast(res.error, "error");
+    else if ((res.synced ?? 0) === 0 && (res.skipped ?? 0) > 0)
+      toast("Plán uložen; kalendář se nezaložil — účet mimo Workspace.", "error");
+    else toast("Plán uložen do kalendáře Kronos.");
+  }
+
+  async function clearPlan() {
+    setPlanDate("");
+    setPlanFrom("");
+    setPlanTo("");
+    const ok = await autosave({ planned_start: null, planned_end: null });
+    if (!ok) return;
+    const res = await syncTaskCalendar(task.id);
+    if (res.error) toast(res.error, "error");
   }
 
   /** Zavření karty: když se něco uložilo, ať se seznam pod ní přenačte. */
@@ -1139,6 +1188,58 @@ export default function CardModal({
             Po dokončení se automaticky založí další výskyt s posunutým termínem.
           </p>
         )}
+
+        {/* plánované okno — kdy na tom budu dělat; propíše se do kalendáře
+            „Kronos" řešitelů (Google Workspace) */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span
+            className="text-xs text-ink-soft/70"
+            title="Naplánované okno se uloží řešitelům do Google kalendáře „Kronos“."
+          >
+            🗓 Plán:
+          </span>
+          <input
+            type="date"
+            value={planDate}
+            onChange={(e) => {
+              setPlanDate(e.target.value);
+              savePlan(e.target.value, planFrom, planTo);
+            }}
+            aria-label="Den plánu"
+            className="input px-2 py-1 text-sm"
+          />
+          <input
+            type="time"
+            value={planFrom}
+            onChange={(e) => {
+              setPlanFrom(e.target.value);
+              savePlan(planDate, e.target.value, planTo);
+            }}
+            aria-label="Plán od"
+            className="input px-2 py-1 text-sm"
+          />
+          <span className="text-ink-soft/50">–</span>
+          <input
+            type="time"
+            value={planTo}
+            onChange={(e) => {
+              setPlanTo(e.target.value);
+              savePlan(planDate, planFrom, e.target.value);
+            }}
+            aria-label="Plán do"
+            className="input px-2 py-1 text-sm"
+          />
+          {(planDate || planFrom || planTo) && (
+            <button
+              onClick={clearPlan}
+              aria-label="Zrušit plán"
+              title="Zrušit plán (smaže i událost v kalendáři)"
+              className="rounded px-1.5 py-1 text-sm text-ink-soft/50 hover:text-danger"
+            >
+              ×
+            </button>
+          )}
+        </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
           {labels.map((label) => {

@@ -121,3 +121,29 @@ Tlačítko „Pokračovat přes Google" na /login funguje až po tomhle nastaven
 
 Poznámka: MCP napojení na Claude se nemění — jede přes vlastní OAuth
 Kronosu nad session, bez ohledu na to, čím se uživatel přihlásil.
+
+## 7. Google kalendář „Kronos" (plánovaná okna úkolů)
+
+Plán z karty (🗓 datum + od–do) se propisuje řešitelům do sekundárního
+kalendáře „Kronos" v jejich Google Workspace účtu. Server jedná jejich
+jménem přes service account s domain-wide delegation — žádné per-user
+tokeny, funguje bez ohledu na způsob přihlášení.
+
+1. **Google Cloud Console** (stejný projekt jako OAuth): IAM & Admin →
+   Service Accounts → **Create service account** (bez rolí). U účtu vytvoř
+   **JSON klíč** a poznamenej si `client_email`, `private_key`
+   a **Unique ID** (číselné client id).
+2. APIs & Services → **Enable** „Google Calendar API".
+3. **admin.google.com** → Security → Access and data control → API controls
+   → **Domain-wide delegation** → Add new: client id = Unique ID z kroku 1,
+   scope: `https://www.googleapis.com/auth/calendar`.
+4. Env na Vercelu:
+   - `GOOGLE_SA_EMAIL` = client_email service accountu
+   - `GOOGLE_SA_PRIVATE_KEY` = private_key z JSON (víceřádkový PEM; Vercel
+     ho vezme i s \n escapy)
+   - `GOOGLE_WORKSPACE_DOMAIN` = `denular.com` (default)
+5. Migrace `0042_planovane_okno_kalendar.sql`.
+
+Kalendář „Kronos" se každému založí při prvním uloženém plánu (id se
+cachuje v `google_calendars`). Účty mimo doménu (např. gmail) se přeskočí
+— plán se uloží, jen bez události.
