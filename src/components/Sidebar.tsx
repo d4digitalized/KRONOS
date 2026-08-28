@@ -29,6 +29,7 @@ export default function Sidebar({
   userId,
   userName,
   userProfile,
+  googleLinked = false,
 }: {
   wsId: string;
   workspaces: Workspace[];
@@ -41,6 +42,8 @@ export default function Sidebar({
   userId?: string;
   userName: string;
   userProfile?: Profile | null;
+  /** účet přilinkovaný ke Google (Workspace) — jméno svítí akcentem */
+  googleLinked?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -158,7 +161,12 @@ export default function Sidebar({
           size="md"
         />
         {!collapsed && (
-          <span className="min-w-0 flex-1 truncate text-sm text-ink-soft">
+          <span
+            title={googleLinked ? "Účet propojen s Googlem" : undefined}
+            className={`min-w-0 flex-1 truncate text-sm ${
+              googleLinked ? "font-medium text-accent" : "text-ink-soft"
+            }`}
+          >
             {userName}
           </span>
         )}

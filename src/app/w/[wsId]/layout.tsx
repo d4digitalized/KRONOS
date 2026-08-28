@@ -48,6 +48,10 @@ export default async function WorkspaceLayout({
   const canTaskforce = isAdmin || (grantCount ?? 0) > 0;
   // Poznámky: osobní scratchpad, jen komu to admin zapnul (i adminovi sobě)
   const canNotes = !!membership?.can_notes;
+  // účet propojený s Googlem — jméno v patičce svítí zeleně
+  const googleLinked = (user.identities ?? []).some(
+    (i) => i.provider === "google"
+  );
   // výkaz v %: místo timeru procentní denní výkaz (zahrnuje osekané rozhraní)
   const percentReport = !isAdmin && !!membership?.percent_report;
   // „jen měření času": osekané rozhraní (adminům se flagy ignorují)
@@ -87,6 +91,7 @@ export default async function WorkspaceLayout({
         userId={user.id}
         userName={profile?.full_name || profile?.email || ""}
         userProfile={profile}
+        googleLinked={googleLinked}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         {/* výkaz v %: timer schovat — záznamy generuje procentní výkaz */}
@@ -109,6 +114,7 @@ export default async function WorkspaceLayout({
         userId={user.id}
         userName={profile?.full_name || profile?.email || ""}
         userProfile={profile}
+        googleLinked={googleLinked}
       />
       {/* „jen měření času": žádné zakládání úkolů */}
       {!timeOnly && (
