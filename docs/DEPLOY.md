@@ -102,7 +102,9 @@ se odřízne) a normálně notifikuje ostatní.
 
 Tlačítko „Pokračovat přes Google" na /login funguje až po tomhle nastavení:
 
-1. **Google Cloud Console** (projekt pod Workspace organizací DENULAR):
+1. **Google Cloud Console** — společný projekt **DIOS** pod Workspace
+   organizací (jeden pro celou rodinu aplikací: OAuth clienty Kronosu
+   i Tektosu, sdílený service account):
    APIs & Services → Credentials → **Create OAuth client ID** (Web application).
    - Authorized redirect URI: `https://<projekt>.supabase.co/auth/v1/callback`
      (přesnou adresu vypíše Supabase v kroku 2).
@@ -129,7 +131,8 @@ kalendáře „Kronos" v jejich Google Workspace účtu. Server jedná jejich
 jménem přes service account s domain-wide delegation — žádné per-user
 tokeny, funguje bez ohledu na způsob přihlášení.
 
-1. **Google Cloud Console** (stejný projekt jako OAuth): IAM & Admin →
+1. **Google Cloud Console** (tentýž sdílený projekt DIOS jako v §6):
+   IAM & Admin →
    Service Accounts → **Create service account** (bez rolí). U účtu vytvoř
    **JSON klíč** a poznamenej si `client_email`, `private_key`
    a **Unique ID** (číselné client id).
