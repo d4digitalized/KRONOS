@@ -24,10 +24,22 @@ function b64url(input: string): string {
   return Buffer.from(input).toString("base64url");
 }
 
+/** PEM klíč z env — snese uvozovky na krajích i \n escapy z JSONu. */
+function privateKey(): string {
+  let k = process.env.GOOGLE_SA_PRIVATE_KEY!.trim();
+  if (
+    (k.startsWith('"') && k.endsWith('"')) ||
+    (k.startsWith("'") && k.endsWith("'"))
+  ) {
+    k = k.slice(1, -1);
+  }
+  return k.replace(/\\n/g, "\n").trim();
+}
+
 /** Access token pro jednání jménem uživatele (JWT bearer flow). */
 async function accessToken(userEmail: string): Promise<string> {
-  const iss = process.env.GOOGLE_SA_EMAIL!;
-  const key = process.env.GOOGLE_SA_PRIVATE_KEY!.replace(/\\n/g, "\n");
+  const iss = process.env.GOOGLE_SA_EMAIL!.trim();
+  const key = privateKey();
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const payload = b64url(
