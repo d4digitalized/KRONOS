@@ -578,7 +578,7 @@ export default function CardModal({
     if (res.error) toast(res.error, "error");
     else if ((res.synced ?? 0) === 0 && (res.skipped ?? 0) > 0)
       toast("Plán uložen; kalendář se nezaložil — účet mimo Workspace.", "error");
-    else toast("Plán uložen do kalendáře Kronos.");
+    else toast("Plán uložen do kalendáře.");
   }
 
   async function clearPlan() {

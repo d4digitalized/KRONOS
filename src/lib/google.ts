@@ -74,11 +74,16 @@ async function gfetch(
   });
 }
 
-/** Založí uživateli sekundární kalendář „Kronos" a vrátí jeho id. */
+/** Název sdíleného kalendáře (env GOOGLE_CALENDAR_NAME, default „Kronos"). */
+export function calendarName(): string {
+  return process.env.GOOGLE_CALENDAR_NAME ?? "Kronos";
+}
+
+/** Založí uživateli sekundární plánovací kalendář a vrátí jeho id. */
 export async function createKronosCalendar(userEmail: string): Promise<string> {
   const res = await gfetch(userEmail, "/calendars", {
     method: "POST",
-    body: JSON.stringify({ summary: "Kronos", timeZone: TZ }),
+    body: JSON.stringify({ summary: calendarName(), timeZone: TZ }),
   });
   if (!res.ok) {
     throw new Error(`create calendar ${res.status}: ${await res.text()}`);
