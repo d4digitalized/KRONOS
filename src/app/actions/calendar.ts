@@ -165,7 +165,9 @@ export async function syncTaskCalendar(
     }
   } catch (err) {
     console.error("calendar sync failed", err);
-    return { error: "Zápis do Google kalendáře se nezdařil." };
+    // konkrétní příčina do toastu — bez ní se to nedá ladit z UI
+    const msg = err instanceof Error ? err.message : String(err);
+    return { error: `Zápis do kalendáře selhal: ${msg.slice(0, 220)}` };
   }
 
   return { ok: true, synced, skipped };
