@@ -16,5 +16,5 @@ export default async function MyDayPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  return <MyDayView userId={user.id} />;
+  return <MyDayView wsId={wsId} userId={user.id} />;
 }
