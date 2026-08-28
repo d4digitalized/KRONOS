@@ -130,7 +130,7 @@ export default function MyDayView({ userId }: { userId: string }) {
   if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
 
   return (
-    <div className="w-full max-w-3xl space-y-4">
+    <div className="mx-auto w-full max-w-3xl space-y-4">
       <div>
         <h1 className="font-display text-lg font-semibold">Můj den</h1>
         <p className="text-xs text-ink-soft/70">
