@@ -47,18 +47,34 @@ export async function syncTaskCalendar(
   const [taRes, existingRes] = await Promise.all([
     admin
       .from("task_assignees")
-      .select("user_id, profiles(email)")
+      .select("user_id, profiles(email, full_name)")
       .eq("task_id", taskId),
     admin.from("task_calendar_events").select("*").eq("task_id", taskId),
   ]);
 
   // cíl = členové-řešitelé; úkol bez řešitele plánuje ten, kdo okno vyplnil
-  let targets = (taRes.data ?? []).map((r) => ({
-    userId: r.user_id as string,
-    email: (r.profiles as { email?: string } | null)?.email ?? null,
-  }));
-  if (targets.length === 0)
-    targets = [{ userId: user.id, email: user.email ?? null }];
+  let targets = (taRes.data ?? []).map((r) => {
+    const p = r.profiles as { email?: string; full_name?: string } | null;
+    return {
+      userId: r.user_id as string,
+      email: p?.email ?? null,
+      name: p?.full_name ?? null,
+    };
+  });
+  if (targets.length === 0) {
+    const { data: me } = await admin
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.id)
+      .maybeSingle();
+    targets = [
+      {
+        userId: user.id,
+        email: user.email ?? null,
+        name: (me?.full_name as string) ?? null,
+      },
+    ];
+  }
 
   const { data: members } = await admin
     .from("workspace_members")
@@ -110,7 +126,8 @@ export async function syncTaskCalendar(
       }
 
       if (!calendarId) {
-        calendarId = await createKronosCalendar(email);
+        // „Jan Dürrer - KRONOS" — kalendář nese jméno vlastníka
+        calendarId = await createKronosCalendar(email, target.name || email);
         await admin
           .from("google_calendars")
           .upsert({ user_id: target.userId, calendar_id: calendarId });
