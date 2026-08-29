@@ -1,7 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  pointerWithin,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import { fmtClock } from "@/lib/format";
@@ -27,17 +41,170 @@ function hhmm(iso: string): string {
   const d = new Date(iso);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+/** minuty od půlnoci lokálního času */
+function minOfDay(iso: string): number {
+  const d = new Date(iso);
+  return d.getHours() * 60 + d.getMinutes();
+}
 
 const DAY_LABEL = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
+const SLOT_MIN = 30; // krok přetažení
+const PX_PER_MIN = 56 / 60; // hodina = 56 px
 
 type PlannedTask = Task & {
   workspaces?: { name: string } | null;
   task_assignees?: { user_id: string }[];
 };
 
-/** Můj den: agenda naplánovaných oken (stejná data jako kalendář KRONOS)
-    napříč všemi firmami + termíny dne. Plán se edituje na kartě úkolu,
-    tady se jen čte — klik vede přes /t/<id> rovnou na kartu. */
+type DragData = { taskId: string; title: string; durationMin: number };
+
+/** Kandidát v pravém panelu — přetažitelný na hodinovou osu. */
+function CandidateRow({
+  task,
+  open,
+  children,
+  onToggle,
+}: {
+  task: PlannedTask;
+  open: boolean;
+  children: React.ReactNode;
+  onToggle: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `cand-${task.id}`,
+    data: {
+      taskId: task.id,
+      title: task.title,
+      durationMin: 60,
+    } satisfies DragData,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={`rounded-lg ${isDragging ? "opacity-40" : ""} ${
+        open ? "bg-accent-soft/50" : "hover:bg-black/[.03]"
+      }`}
+    >
+      <button
+        onClick={onToggle}
+        className="flex w-full cursor-grab items-center gap-2 px-2 py-1.5 text-left"
+      >
+        <span
+          aria-hidden
+          style={{ background: projectColor(task.workspace_id) }}
+          className="h-6 w-1 shrink-0 rounded-full"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm">{task.title}</span>
+          <span className="flex items-center gap-1 text-[11px] text-ink-soft/70">
+            <span className="font-medium">{task.workspaces?.name}</span>
+            <span aria-hidden>·</span>
+            <span className="truncate">{task.projects?.name ?? "Bez projektu"}</span>
+            {task.due_date && (
+              <span className="ml-auto shrink-0">
+                do{" "}
+                {new Date(`${task.due_date}T00:00`).toLocaleDateString("cs-CZ", {
+                  day: "numeric",
+                  month: "numeric",
+                })}
+              </span>
+            )}
+          </span>
+        </span>
+      </button>
+      {children}
+    </div>
+  );
+}
+
+/** Naplánovaný blok na ose — přetažením se přesune, klik otevře kartu. */
+function PlannedBlock({
+  task,
+  top,
+  height,
+  active,
+  past,
+  onOpen,
+}: {
+  task: PlannedTask;
+  top: number;
+  height: number;
+  active: boolean;
+  past: boolean;
+  onOpen: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `plan-${task.id}`,
+    data: {
+      taskId: task.id,
+      title: task.title,
+      durationMin: Math.max(
+        SLOT_MIN,
+        Math.round(
+          (new Date(task.planned_end!).getTime() -
+            new Date(task.planned_start!).getTime()) /
+            60000
+        )
+      ),
+    } satisfies DragData,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      onClick={onOpen}
+      style={{
+        top,
+        height: Math.max(height, 26),
+        borderLeftColor: projectColor(task.workspace_id),
+      }}
+      className={`absolute left-14 right-2 z-10 cursor-grab overflow-hidden rounded-md border border-line border-l-4 bg-surface px-2 py-0.5 shadow-sm hover:border-accent/50 ${
+        isDragging ? "opacity-40" : ""
+      } ${past && !active ? "opacity-60" : ""} ${active ? "ring-1 ring-accent/60" : ""}`}
+    >
+      <span className="flex items-baseline gap-2 text-xs">
+        <span
+          className={`shrink-0 font-mono tabular-nums ${
+            active ? "font-semibold text-accent" : "text-ink-soft"
+          }`}
+        >
+          {hhmm(task.planned_start!)}–{hhmm(task.planned_end!)}
+        </span>
+        <span
+          className={`min-w-0 flex-1 truncate text-sm ${
+            task.completed_at ? "text-ink-soft/60 line-through" : ""
+          }`}
+        >
+          {task.title}
+        </span>
+        {active && (
+          <span className="shrink-0 rounded-full bg-accent/15 px-1.5 text-[10px] font-medium text-accent">
+            teď
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** Droppable slot (30 min) na hodinové ose. */
+function Slot({ min, top }: { min: number; top: number }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `min:${min}` });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ top, height: SLOT_MIN * PX_PER_MIN }}
+      className={`absolute left-12 right-0 ${isOver ? "bg-accent/10" : ""}`}
+    />
+  );
+}
+
+/** Můj den: hodinová osa s drag & drop plánováním. Kartu z pravého panelu
+    přetáhneš na hodinu (výchozí délka 1 h), naplánovaný blok jde přetáhnout
+    jinam; přesné minuty přes rozbalení v panelu nebo na kartě (🗓 Plán). */
 export default function MyDayView({
   wsId,
   userId,
@@ -46,11 +213,11 @@ export default function MyDayView({
   userId: string;
 }) {
   const supabase = createClient();
+  const router = useRouter();
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [day, setDay] = useState(() => isoDay(new Date()));
   const [planned, setPlanned] = useState<PlannedTask[]>([]);
   const [due, setDue] = useState<PlannedTask[]>([]);
-  // pravý sloupec: kandidáti k naplánování + hledání + rychlé založení
   const [candidates, setCandidates] = useState<PlannedTask[]>([]);
   const [query, setQuery] = useState("");
   const [fProject, setFProject] = useState("");
@@ -60,6 +227,12 @@ export default function MyDayView({
   const [planTo, setPlanTo] = useState("10:00");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [dragging, setDragging] = useState<DragData | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
+  );
 
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
 
@@ -69,7 +242,6 @@ export default function MyDayView({
     const fromDay = isoDay(weekStart);
     const toDay = isoDay(weekEnd);
     const [mineRes, createdRes, dueRes, candRes] = await Promise.all([
-      // naplánované úkoly, kde jsem řešitel (napříč firmami)
       supabase
         .from("task_assignees")
         .select(
@@ -78,14 +250,12 @@ export default function MyDayView({
         .eq("user_id", userId)
         .gte("tasks.planned_start", fromISO)
         .lt("tasks.planned_start", toISO),
-      // naplánované úkoly bez řešitele, které jsem založil (plánuje autor)
       supabase
         .from("tasks")
         .select("*, projects(name), workspaces(name), task_assignees(user_id)")
         .eq("created_by", userId)
         .gte("planned_start", fromISO)
         .lt("planned_start", toISO),
-      // termíny v týdnu (bez naplánovaných — ty už jsou na ose)
       supabase
         .from("task_assignees")
         .select("tasks!inner(*, projects(name), workspaces(name))")
@@ -94,7 +264,6 @@ export default function MyDayView({
         .is("tasks.planned_start", null)
         .gte("tasks.due_date", fromDay)
         .lt("tasks.due_date", toDay),
-      // kandidáti k naplánování: moje otevřené úkoly bez plánu (všechny firmy)
       supabase
         .from("task_assignees")
         .select("tasks!inner(*, projects(name), workspaces(name))")
@@ -163,7 +332,62 @@ export default function MyDayView({
   );
   const nowISO = new Date().toISOString();
 
-  /** Rozbalení plánovací nabídky u úkolu — od kdy: za poslední okno dne. */
+  // rozsah osy: 6–20, roztažený podle naplánovaných bloků
+  const startHour = Math.min(
+    6,
+    ...dayPlanned.map((t) => Math.floor(minOfDay(t.planned_start!) / 60))
+  );
+  const endHour = Math.max(
+    20,
+    ...dayPlanned.map((t) => Math.ceil((minOfDay(t.planned_end!) || 1) / 60))
+  );
+  const startMin = startHour * 60;
+  const gridHeight = (endHour - startHour) * 60 * PX_PER_MIN;
+
+  /** Zapsat plán a synchronizovat kalendář. */
+  async function applyPlan(
+    taskId: string,
+    title: string,
+    from: string,
+    to: string
+  ) {
+    setBusy(true);
+    const { error } = await supabase
+      .from("tasks")
+      .update({
+        planned_start: new Date(`${day}T${from}`).toISOString(),
+        planned_end: new Date(`${day}T${to}`).toISOString(),
+      })
+      .eq("id", taskId);
+    if (error) {
+      setBusy(false);
+      toast("Naplánování se nezdařilo.", "error");
+      return;
+    }
+    const res = await syncTaskCalendar(taskId);
+    if (res.error) toast(res.error, "error");
+    else toast(`Naplánováno: ${title} (${from}–${to})`);
+    setPlanFor(null);
+    setBusy(false);
+    load();
+  }
+
+  function onDragStart(e: DragStartEvent) {
+    setDragging((e.active.data.current as DragData) ?? null);
+  }
+
+  function onDragEnd(e: DragEndEvent) {
+    const data = e.active.data.current as DragData | undefined;
+    setDragging(null);
+    const overId = e.over?.id;
+    if (!data || typeof overId !== "string" || !overId.startsWith("min:")) return;
+    const start = Number(overId.slice(4));
+    const end = Math.min(start + data.durationMin, 24 * 60);
+    const f = `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`;
+    const t = `${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`;
+    applyPlan(data.taskId, data.title, f, t);
+  }
+
   function openPlan(taskId: string) {
     if (planFor === taskId) {
       setPlanFor(null);
@@ -178,35 +402,6 @@ export default function MyDayView({
     setPlanFor(taskId);
   }
 
-  /** Zapíše plán na vybraný den a propíše ho do kalendáře. */
-  async function planTask(task: PlannedTask) {
-    if (busy) return;
-    if (!planFrom || !planTo || planTo <= planFrom) {
-      toast("Konec plánu musí být po začátku.", "error");
-      return;
-    }
-    setBusy(true);
-    const { error } = await supabase
-      .from("tasks")
-      .update({
-        planned_start: new Date(`${day}T${planFrom}`).toISOString(),
-        planned_end: new Date(`${day}T${planTo}`).toISOString(),
-      })
-      .eq("id", task.id);
-    if (error) {
-      setBusy(false);
-      toast("Naplánování se nezdařilo.", "error");
-      return;
-    }
-    const res = await syncTaskCalendar(task.id);
-    if (res.error) toast(res.error, "error");
-    else toast(`Naplánováno: ${task.title} (${planFrom}–${planTo})`);
-    setPlanFor(null);
-    setBusy(false);
-    load();
-  }
-
-  /** Rychlé založení úkolu (aktuální firma, řešitel já, rovnou zatříděný). */
   async function addTask(e: React.FormEvent) {
     e.preventDefault();
     const title = newTitle.trim();
@@ -231,13 +426,12 @@ export default function MyDayView({
       .insert({ task_id: data.id, user_id: userId });
     setNewTitle("");
     setBusy(false);
-    toast(`Úkol přidán: ${title} — teď ho naplánuj.`);
+    toast(`Úkol přidán: ${title} — přetáhni ho na osu.`);
     load();
   }
 
   if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
 
-  // projekty v nabídce filtru — z kandidátů, se jménem firmy pro rozlišení
   const projectOptions: { key: string; label: string }[] = [];
   for (const t of candidates) {
     const key = t.project_id ?? "none";
@@ -262,7 +456,16 @@ export default function MyDayView({
     )
     .slice(0, 30);
 
+  const slots: number[] = [];
+  for (let m = startMin; m < endHour * 60; m += SLOT_MIN) slots.push(m);
+
   return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={pointerWithin}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
     <div className="grid w-full items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
     <div className="min-w-0 space-y-4">
       <div>
@@ -280,10 +483,11 @@ export default function MyDayView({
               · <span className="font-mono">{fmtClock(totalSeconds)}</span> h
             </>
           )}
+          {" · "}úkol přetáhni z panelu vpravo na hodinu
         </p>
       </div>
 
-      {/* pruh dnů — jako v Denním výkazu */}
+      {/* pruh dnů */}
       <div className="flex items-center gap-1.5 panel p-2">
         <button
           onClick={() => setWeekStart((w) => addDays(w, -7))}
@@ -308,11 +512,7 @@ export default function MyDayView({
               >
                 <span
                   className={
-                    selected
-                      ? ""
-                      : key === today
-                        ? "font-semibold"
-                        : "text-ink-soft/70"
+                    selected ? "" : key === today ? "font-semibold" : "text-ink-soft/70"
                   }
                 >
                   {DAY_LABEL[i]} {d.getDate()}.
@@ -341,67 +541,52 @@ export default function MyDayView({
         </button>
       </div>
 
-      {/* časová osa naplánovaných oken */}
-      {dayPlanned.length === 0 ? (
-        <p className="panel p-8 text-center text-sm text-ink-soft/70">
-          Na tenhle den nemáš nic naplánované. Okno nastavíš na kartě úkolu
-          (🗓 Plán) — propíše se sem i do kalendáře.
-        </p>
-      ) : (
-        <div className="divide-y divide-line/50 panel">
+      {/* hodinová osa s droppable sloty */}
+      <div className="panel overflow-hidden">
+        <div className="relative" style={{ height: gridHeight }}>
+          {Array.from({ length: endHour - startHour }, (_, i) => {
+            const h = startHour + i;
+            const top = (h * 60 - startMin) * PX_PER_MIN;
+            return (
+              <div key={h}>
+                <div
+                  aria-hidden
+                  style={{ top }}
+                  className="absolute left-0 right-0 border-t border-line/50"
+                />
+                <span
+                  style={{ top: top + 2 }}
+                  className="absolute left-2 font-mono text-[10px] text-ink-soft/50"
+                >
+                  {String(h).padStart(2, "0")}:00
+                </span>
+              </div>
+            );
+          })}
+          {slots.map((m) => (
+            <Slot key={m} min={m} top={(m - startMin) * PX_PER_MIN} />
+          ))}
           {dayPlanned.map((t) => {
+            const s = minOfDay(t.planned_start!);
+            const e = Math.max(minOfDay(t.planned_end!), s + 10);
             const active =
               !t.completed_at &&
               t.planned_start! <= nowISO &&
               nowISO < t.planned_end!;
-            const past = t.planned_end! < nowISO;
             return (
-              <Link
+              <PlannedBlock
                 key={t.id}
-                href={`/t/${t.id}`}
-                className={`flex items-center gap-3 px-3 py-2.5 hover:bg-black/[.02] ${
-                  past && !active ? "opacity-60" : ""
-                }`}
-              >
-                <span
-                  aria-hidden
-                  style={{ background: projectColor(t.workspace_id) }}
-                  className="h-9 w-1 shrink-0 rounded-full"
-                />
-                <span
-                  className={`w-24 shrink-0 font-mono text-sm tabular-nums ${
-                    active ? "font-semibold text-accent" : "text-ink-soft"
-                  }`}
-                >
-                  {hhmm(t.planned_start!)}–{hhmm(t.planned_end!)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span
-                    className={`block truncate text-sm ${
-                      t.completed_at ? "text-ink-soft/60 line-through" : ""
-                    }`}
-                  >
-                    {t.title}
-                  </span>
-                  <span className="flex items-center gap-1.5 text-xs text-ink-soft/70">
-                    <span className="font-medium">{t.workspaces?.name}</span>
-                    <span aria-hidden>·</span>
-                    <ProjectDot id={t.project_id} className="h-2 w-2" />
-                    <span className="truncate">
-                      {t.projects?.name ?? "Bez projektu"}
-                    </span>
-                  </span>
-                </span>
-                {active && (
-                  <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent">
-                    teď
-                  </span>
-                )}
-              </Link>
+                task={t}
+                top={(s - startMin) * PX_PER_MIN}
+                height={(e - s) * PX_PER_MIN}
+                active={active}
+                past={t.planned_end! < nowISO}
+                onOpen={() => router.push(`/t/${t.id}`)}
+              />
             );
           })}
         </div>
-      )}
+      </div>
 
       {/* termíny dne (nenaplánované) */}
       {dayDue.length > 0 && (
@@ -442,7 +627,7 @@ export default function MyDayView({
       )}
     </div>
 
-    {/* pravý sloupec: najít / založit úkol a naplánovat ho na vybraný den */}
+    {/* pravý sloupec: najít / založit úkol a naplánovat */}
     <aside className="panel space-y-3 p-3">
       <h2 className="text-sm font-semibold">Naplánovat úkol</h2>
 
@@ -471,7 +656,6 @@ export default function MyDayView({
         className="input w-full px-2 py-1.5 text-sm"
       />
 
-      {/* filtr projektů — jen projekty, kde mám nenaplánované úkoly */}
       {projectOptions.length > 1 && (
         <select
           value={fProject}
@@ -493,76 +677,60 @@ export default function MyDayView({
           {q ? "Nic nenalezeno." : "Žádné nenaplánované úkoly. 🎉"}
         </p>
       ) : (
-        <div className="-mx-1 max-h-[26rem] space-y-0.5 overflow-y-auto px-1">
-          {results.map((t) => {
-            const open = planFor === t.id;
-            return (
-              <div
-                key={t.id}
-                className={`rounded-lg ${open ? "bg-accent-soft/50" : "hover:bg-black/[.03]"}`}
-              >
-                <button
-                  onClick={() => openPlan(t.id)}
-                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left"
-                >
-                  <span
-                    aria-hidden
-                    style={{ background: projectColor(t.workspace_id) }}
-                    className="h-6 w-1 shrink-0 rounded-full"
+        <div className="-mx-1 max-h-[30rem] space-y-0.5 overflow-y-auto px-1">
+          {results.map((t) => (
+            <CandidateRow
+              key={t.id}
+              task={t}
+              open={planFor === t.id}
+              onToggle={() => openPlan(t.id)}
+            >
+              {planFor === t.id && (
+                <div className="flex items-center gap-1.5 px-2 pb-2">
+                  <input
+                    type="time"
+                    value={planFrom}
+                    onChange={(e) => setPlanFrom(e.target.value)}
+                    aria-label="Plán od"
+                    className="input px-1.5 py-1 text-xs"
                   />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">{t.title}</span>
-                    <span className="flex items-center gap-1 text-[11px] text-ink-soft/70">
-                      <span className="font-medium">{t.workspaces?.name}</span>
-                      <span aria-hidden>·</span>
-                      <span className="truncate">
-                        {t.projects?.name ?? "Bez projektu"}
-                      </span>
-                      {t.due_date && (
-                        <span className="ml-auto shrink-0">
-                          do{" "}
-                          {new Date(`${t.due_date}T00:00`).toLocaleDateString(
-                            "cs-CZ",
-                            { day: "numeric", month: "numeric" }
-                          )}
-                        </span>
-                      )}
-                    </span>
-                  </span>
-                </button>
-                {open && (
-                  <div className="flex items-center gap-1.5 px-2 pb-2">
-                    <input
-                      type="time"
-                      value={planFrom}
-                      onChange={(e) => setPlanFrom(e.target.value)}
-                      aria-label="Plán od"
-                      className="input px-1.5 py-1 text-xs"
-                    />
-                    <span className="text-ink-soft/50">–</span>
-                    <input
-                      type="time"
-                      value={planTo}
-                      onChange={(e) => setPlanTo(e.target.value)}
-                      aria-label="Plán do"
-                      className="input px-1.5 py-1 text-xs"
-                    />
-                    <button
-                      onClick={() => planTask(t)}
-                      disabled={busy}
-                      className="btn-primary ml-auto px-2.5 py-1 text-xs disabled:opacity-60"
-                    >
-                      {DAY_LABEL[(new Date(`${day}T00:00`).getDay() + 6) % 7]}{" "}
-                      {new Date(`${day}T00:00`).getDate()}. ✓
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                  <span className="text-ink-soft/50">–</span>
+                  <input
+                    type="time"
+                    value={planTo}
+                    onChange={(e) => setPlanTo(e.target.value)}
+                    aria-label="Plán do"
+                    className="input px-1.5 py-1 text-xs"
+                  />
+                  <button
+                    onClick={() => {
+                      if (!planFrom || !planTo || planTo <= planFrom) {
+                        toast("Konec plánu musí být po začátku.", "error");
+                        return;
+                      }
+                      applyPlan(t.id, t.title, planFrom, planTo);
+                    }}
+                    disabled={busy}
+                    className="btn-primary ml-auto px-2.5 py-1 text-xs disabled:opacity-60"
+                  >
+                    Naplánovat ✓
+                  </button>
+                </div>
+              )}
+            </CandidateRow>
+          ))}
         </div>
       )}
     </aside>
     </div>
+
+    <DragOverlay>
+      {dragging && (
+        <div className="rounded-lg border border-accent/50 bg-surface px-3 py-1.5 text-sm shadow-lg">
+          {dragging.title}
+        </div>
+      )}
+    </DragOverlay>
+    </DndContext>
   );
 }
