@@ -139,6 +139,7 @@ function PlannedBlock({
   active,
   past,
   onOpen,
+  onUnplan,
 }: {
   task: PlannedTask;
   top: number;
@@ -147,6 +148,7 @@ function PlannedBlock({
   active: boolean;
   past: boolean;
   onOpen: () => void;
+  onUnplan: () => void;
 }) {
   const durationMin = Math.max(
     SLOT_MIN,
@@ -215,6 +217,18 @@ function PlannedBlock({
             teď
           </span>
         )}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onUnplan();
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          aria-label="Odnaplánovat"
+          title="Odnaplánovat"
+          className="shrink-0 rounded px-1 leading-none text-ink-soft/40 hover:bg-black/5 hover:text-red-600"
+        >
+          ✕
+        </button>
       </span>
       {/* úchyt pro změnu délky — stopPropagation, aby netáhl celý blok */}
       <div
@@ -486,6 +500,32 @@ export default function MyDayView({
     applyPlan(data.task, f, t);
   }
 
+  /** Zruší plánované okno: blok zmizí hned, úkol se vrátí mezi kandidáty,
+      událost v kalendáři se smaže na pozadí. */
+  async function unplan(task: PlannedTask) {
+    setPlanned((prev) => prev.filter((p) => p.id !== task.id));
+    if (!task.completed_at && !task.on_hold && !task.parent_id) {
+      const cleared = { ...task, planned_start: null, planned_end: null };
+      setCandidates((prev) => [
+        cleared,
+        ...prev.filter((c) => c.id !== task.id),
+      ]);
+    }
+    const { error } = await supabase
+      .from("tasks")
+      .update({ planned_start: null, planned_end: null })
+      .eq("id", task.id);
+    if (error) {
+      toast("Odnaplánování se nezdařilo.", "error");
+      load();
+      return;
+    }
+    toast(`Odnaplánováno: ${task.title}`);
+    syncTaskCalendar(task.id).then((res) => {
+      if (res.error) toast(res.error, "error");
+    });
+  }
+
   /** Otevře kartu úkolu v modalu nad Mým dnem (nenaviguje do projektu). */
   async function openCard(task: PlannedTask) {
     const { data } = await supabase
@@ -694,6 +734,7 @@ export default function MyDayView({
                 active={active}
                 past={t.planned_end! < nowISO}
                 onOpen={() => openCard(t)}
+                onUnplan={() => unplan(t)}
               />
             );
           })}
