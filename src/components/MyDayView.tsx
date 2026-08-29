@@ -53,6 +53,7 @@ export default function MyDayView({
   // pravý sloupec: kandidáti k naplánování + hledání + rychlé založení
   const [candidates, setCandidates] = useState<PlannedTask[]>([]);
   const [query, setQuery] = useState("");
+  const [fProject, setFProject] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [planFor, setPlanFor] = useState<string | null>(null);
   const [planFrom, setPlanFrom] = useState("09:00");
@@ -236,19 +237,33 @@ export default function MyDayView({
 
   if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
 
+  // projekty v nabídce filtru — z kandidátů, se jménem firmy pro rozlišení
+  const projectOptions: { key: string; label: string }[] = [];
+  for (const t of candidates) {
+    const key = t.project_id ?? "none";
+    if (!projectOptions.some((o) => o.key === key))
+      projectOptions.push({
+        key,
+        label: t.project_id
+          ? `${t.projects?.name ?? "projekt"} (${t.workspaces?.name ?? "?"})`
+          : "Bez projektu",
+      });
+  }
+  projectOptions.sort((a, b) => a.label.localeCompare(b.label, "cs"));
+
   const q = query.trim().toLowerCase();
-  const results = (
-    q
-      ? candidates.filter(
-          (t) =>
-            t.title.toLowerCase().includes(q) ||
-            (t.projects?.name ?? "").toLowerCase().includes(q)
-        )
-      : candidates
-  ).slice(0, 20);
+  const results = candidates
+    .filter((t) => !fProject || (t.project_id ?? "none") === fProject)
+    .filter(
+      (t) =>
+        !q ||
+        t.title.toLowerCase().includes(q) ||
+        (t.projects?.name ?? "").toLowerCase().includes(q)
+    )
+    .slice(0, 30);
 
   return (
-    <div className="mx-auto grid w-full max-w-6xl items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid w-full items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
     <div className="min-w-0 space-y-4">
       <div>
         <h1 className="font-display text-lg font-semibold">Můj den</h1>
@@ -455,6 +470,23 @@ export default function MyDayView({
         onChange={(e) => setQuery(e.target.value)}
         className="input w-full px-2 py-1.5 text-sm"
       />
+
+      {/* filtr projektů — jen projekty, kde mám nenaplánované úkoly */}
+      {projectOptions.length > 1 && (
+        <select
+          value={fProject}
+          onChange={(e) => setFProject(e.target.value)}
+          aria-label="Filtr projektu"
+          className="input w-full px-2 py-1.5 text-sm"
+        >
+          <option value="">Projekt: vše</option>
+          {projectOptions.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      )}
 
       {results.length === 0 ? (
         <p className="py-4 text-center text-xs text-ink-soft/60">
