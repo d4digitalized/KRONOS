@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
@@ -14,6 +13,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { createClient } from "@/lib/supabase/client";
@@ -21,7 +21,10 @@ import { toast } from "@/lib/toast";
 import { fmtClock } from "@/lib/format";
 import { syncTaskCalendar } from "@/app/actions/calendar";
 import { ProjectDot, projectColor } from "@/components/ProjectPicker";
-import type { Task } from "@/lib/types";
+import type { Membership, Task } from "@/lib/types";
+
+// karta se dogeneruje až při otevření — jako na ostatních obrazovkách
+const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
 
 function isoDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -56,7 +59,13 @@ type PlannedTask = Task & {
   task_assignees?: { user_id: string }[];
 };
 
-type DragData = { taskId: string; title: string; durationMin: number };
+type DragData = {
+  taskId: string;
+  title: string;
+  durationMin: number;
+  task: PlannedTask;
+  resize?: boolean;
+};
 
 /** Kandidát v pravém panelu — přetažitelný na hodinovou osu. */
 function CandidateRow({
@@ -76,6 +85,7 @@ function CandidateRow({
       taskId: task.id,
       title: task.title,
       durationMin: 60,
+      task,
     } satisfies DragData,
   });
   return (
@@ -119,11 +129,13 @@ function CandidateRow({
   );
 }
 
-/** Naplánovaný blok na ose — přetažením se přesune, klik otevře kartu. */
+/** Naplánovaný blok na ose — přetažením se přesune, spodní hranou se
+    roztáhne délka, klik otevře kartu. */
 function PlannedBlock({
   task,
   top,
   height,
+  resizeDeltaMin,
   active,
   past,
   onOpen,
@@ -131,25 +143,34 @@ function PlannedBlock({
   task: PlannedTask;
   top: number;
   height: number;
+  resizeDeltaMin: number;
   active: boolean;
   past: boolean;
   onOpen: () => void;
 }) {
+  const durationMin = Math.max(
+    SLOT_MIN,
+    Math.round(
+      (new Date(task.planned_end!).getTime() -
+        new Date(task.planned_start!).getTime()) /
+        60000
+    )
+  );
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `plan-${task.id}`,
+    data: { taskId: task.id, title: task.title, durationMin, task } satisfies DragData,
+  });
+  const rz = useDraggable({
+    id: `resize-${task.id}`,
     data: {
       taskId: task.id,
       title: task.title,
-      durationMin: Math.max(
-        SLOT_MIN,
-        Math.round(
-          (new Date(task.planned_end!).getTime() -
-            new Date(task.planned_start!).getTime()) /
-            60000
-        )
-      ),
+      durationMin,
+      task,
+      resize: true,
     } satisfies DragData,
   });
+  const liveHeight = Math.max(height + resizeDeltaMin * PX_PER_MIN, 26);
   return (
     <div
       ref={setNodeRef}
@@ -158,12 +179,14 @@ function PlannedBlock({
       onClick={onOpen}
       style={{
         top,
-        height: Math.max(height, 26),
+        height: liveHeight,
         borderLeftColor: projectColor(task.workspace_id),
       }}
       className={`absolute left-14 right-2 z-10 cursor-grab overflow-hidden rounded-md border border-line border-l-4 bg-surface px-2 py-0.5 shadow-sm hover:border-accent/50 ${
         isDragging ? "opacity-40" : ""
-      } ${past && !active ? "opacity-60" : ""} ${active ? "ring-1 ring-accent/60" : ""}`}
+      } ${past && !active ? "opacity-60" : ""} ${
+        active || resizeDeltaMin !== 0 ? "ring-1 ring-accent/60" : ""
+      }`}
     >
       <span className="flex items-baseline gap-2 text-xs">
         <span
@@ -171,7 +194,14 @@ function PlannedBlock({
             active ? "font-semibold text-accent" : "text-ink-soft"
           }`}
         >
-          {hhmm(task.planned_start!)}–{hhmm(task.planned_end!)}
+          {hhmm(task.planned_start!)}–
+          {resizeDeltaMin !== 0
+            ? hhmm(
+                new Date(
+                  new Date(task.planned_end!).getTime() + resizeDeltaMin * 60000
+                ).toISOString()
+              )
+            : hhmm(task.planned_end!)}
         </span>
         <span
           className={`min-w-0 flex-1 truncate text-sm ${
@@ -186,6 +216,24 @@ function PlannedBlock({
           </span>
         )}
       </span>
+      {/* úchyt pro změnu délky — stopPropagation, aby netáhl celý blok */}
+      <div
+        ref={rz.setNodeRef}
+        {...rz.attributes}
+        {...rz.listeners}
+        onPointerDown={(e) => {
+          (rz.listeners?.onPointerDown as ((ev: unknown) => void) | undefined)?.(e);
+          e.stopPropagation();
+        }}
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Změnit délku"
+        className="absolute inset-x-0 bottom-0 h-2.5 cursor-ns-resize"
+      >
+        <span
+          aria-hidden
+          className="mx-auto mt-1 block h-1 w-10 rounded-full bg-black/10 hover:bg-accent/40"
+        />
+      </div>
     </div>
   );
 }
@@ -213,7 +261,6 @@ export default function MyDayView({
   userId: string;
 }) {
   const supabase = createClient();
-  const router = useRouter();
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [day, setDay] = useState(() => isoDay(new Date()));
   const [planned, setPlanned] = useState<PlannedTask[]>([]);
@@ -228,6 +275,12 @@ export default function MyDayView({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dragging, setDragging] = useState<DragData | null>(null);
+  const [resizing, setResizing] = useState<{
+    taskId: string;
+    deltaMin: number;
+  } | null>(null);
+  const [openTaskCard, setOpenTaskCard] = useState<PlannedTask | null>(null);
+  const [cardMembers, setCardMembers] = useState<Membership[]>([]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -344,48 +397,105 @@ export default function MyDayView({
   const startMin = startHour * 60;
   const gridHeight = (endHour - startHour) * 60 * PX_PER_MIN;
 
-  /** Zapsat plán a synchronizovat kalendář. */
-  async function applyPlan(
-    taskId: string,
-    title: string,
-    from: string,
-    to: string
-  ) {
-    setBusy(true);
+  /** Optimisticky vloží/posune blok v lokálním stavu — UI reaguje hned,
+      zápis do DB a kalendáře doběhne na pozadí. */
+  const upsertLocal = useCallback(
+    (task: PlannedTask, startISO: string, endISO: string) => {
+      const updated = { ...task, planned_start: startISO, planned_end: endISO };
+      setPlanned((prev) =>
+        [...prev.filter((p) => p.id !== task.id), updated].sort((a, b) =>
+          (a.planned_start ?? "").localeCompare(b.planned_start ?? "")
+        )
+      );
+      setCandidates((prev) => prev.filter((c) => c.id !== task.id));
+      setDue((prev) => prev.filter((c) => c.id !== task.id));
+    },
+    []
+  );
+
+  /** Uloží nové okno: nejdřív lokálně (hned vidět), pak DB + kalendář. */
+  async function persistPlan(task: PlannedTask, startISO: string, endISO: string) {
+    upsertLocal(task, startISO, endISO);
+    setPlanFor(null);
     const { error } = await supabase
       .from("tasks")
-      .update({
-        planned_start: new Date(`${day}T${from}`).toISOString(),
-        planned_end: new Date(`${day}T${to}`).toISOString(),
-      })
-      .eq("id", taskId);
+      .update({ planned_start: startISO, planned_end: endISO })
+      .eq("id", task.id);
     if (error) {
-      setBusy(false);
       toast("Naplánování se nezdařilo.", "error");
+      load(); // vrátit skutečný stav
       return;
     }
-    const res = await syncTaskCalendar(taskId);
-    if (res.error) toast(res.error, "error");
-    else toast(`Naplánováno: ${title} (${from}–${to})`);
-    setPlanFor(null);
-    setBusy(false);
-    load();
+    toast(`Naplánováno: ${task.title} (${hhmm(startISO)}–${hhmm(endISO)})`);
+    // kalendář nečekáme — jen případnou chybu ohlásíme
+    syncTaskCalendar(task.id).then((res) => {
+      if (res.error) toast(res.error, "error");
+    });
+  }
+
+  function applyPlan(task: PlannedTask, from: string, to: string) {
+    persistPlan(
+      task,
+      new Date(`${day}T${from}`).toISOString(),
+      new Date(`${day}T${to}`).toISOString()
+    );
   }
 
   function onDragStart(e: DragStartEvent) {
-    setDragging((e.active.data.current as DragData) ?? null);
+    const data = e.active.data.current as DragData | undefined;
+    if (data?.resize) return; // resize nemá chip v overlay
+    setDragging(data ?? null);
+  }
+
+  function onDragMove(e: DragMoveEvent) {
+    const data = e.active.data.current as DragData | undefined;
+    if (!data?.resize) return;
+    const snapped = Math.round(e.delta.y / PX_PER_MIN / 15) * 15;
+    const deltaMin = Math.max(snapped, 15 - data.durationMin); // min. 15 minut
+    setResizing((prev) =>
+      prev?.taskId === data.taskId && prev.deltaMin === deltaMin
+        ? prev
+        : { taskId: data.taskId, deltaMin }
+    );
   }
 
   function onDragEnd(e: DragEndEvent) {
     const data = e.active.data.current as DragData | undefined;
     setDragging(null);
+    setResizing(null);
+    if (!data) return;
+
+    if (data.resize) {
+      const snapped = Math.round(e.delta.y / PX_PER_MIN / 15) * 15;
+      const deltaMin = Math.max(snapped, 15 - data.durationMin);
+      if (deltaMin === 0) return;
+      const startISO = data.task.planned_start!;
+      const endISO = new Date(
+        new Date(data.task.planned_end!).getTime() + deltaMin * 60000
+      ).toISOString();
+      persistPlan(data.task, startISO, endISO);
+      return;
+    }
+
     const overId = e.over?.id;
-    if (!data || typeof overId !== "string" || !overId.startsWith("min:")) return;
+    if (typeof overId !== "string" || !overId.startsWith("min:")) return;
     const start = Number(overId.slice(4));
     const end = Math.min(start + data.durationMin, 24 * 60);
     const f = `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`;
     const t = `${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`;
-    applyPlan(data.taskId, data.title, f, t);
+    applyPlan(data.task, f, t);
+  }
+
+  /** Otevře kartu úkolu v modalu nad Mým dnem (nenaviguje do projektu). */
+  async function openCard(task: PlannedTask) {
+    const { data } = await supabase
+      .from("workspace_members")
+      .select(
+        "*, profiles(id, email, full_name, is_super_admin, avatar_initials, avatar_color, tag_name)"
+      )
+      .eq("workspace_id", task.workspace_id);
+    setCardMembers((data as unknown as Membership[]) ?? []);
+    setOpenTaskCard(task);
   }
 
   function openPlan(taskId: string) {
@@ -464,6 +574,7 @@ export default function MyDayView({
       sensors={sensors}
       collisionDetection={pointerWithin}
       onDragStart={onDragStart}
+      onDragMove={onDragMove}
       onDragEnd={onDragEnd}
     >
     <div className="grid w-full items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -579,9 +690,10 @@ export default function MyDayView({
                 task={t}
                 top={(s - startMin) * PX_PER_MIN}
                 height={(e - s) * PX_PER_MIN}
+                resizeDeltaMin={resizing?.taskId === t.id ? resizing.deltaMin : 0}
                 active={active}
                 past={t.planned_end! < nowISO}
-                onOpen={() => router.push(`/t/${t.id}`)}
+                onOpen={() => openCard(t)}
               />
             );
           })}
@@ -599,10 +711,10 @@ export default function MyDayView({
           </h2>
           <div className="divide-y divide-line/50">
             {dayDue.map((t) => (
-              <Link
+              <button
                 key={t.id}
-                href={`/t/${t.id}`}
-                className="flex items-center gap-2.5 px-3 py-2 hover:bg-black/[.02]"
+                onClick={() => openCard(t)}
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-black/[.02]"
               >
                 <span
                   aria-hidden
@@ -620,7 +732,7 @@ export default function MyDayView({
                     </span>
                   </span>
                 </span>
-              </Link>
+              </button>
             ))}
           </div>
         </div>
@@ -708,7 +820,7 @@ export default function MyDayView({
                         toast("Konec plánu musí být po začátku.", "error");
                         return;
                       }
-                      applyPlan(t.id, t.title, planFrom, planTo);
+                      applyPlan(t, planFrom, planTo);
                     }}
                     disabled={busy}
                     className="btn-primary ml-auto px-2.5 py-1 text-xs disabled:opacity-60"
@@ -731,6 +843,19 @@ export default function MyDayView({
         </div>
       )}
     </DragOverlay>
+
+    {openTaskCard && (
+      <CardModal
+        task={openTaskCard}
+        members={cardMembers}
+        userId={userId}
+        onClose={() => setOpenTaskCard(null)}
+        onChanged={() => {
+          setOpenTaskCard(null);
+          load();
+        }}
+      />
+    )}
     </DndContext>
   );
 }
