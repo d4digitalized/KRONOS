@@ -52,11 +52,26 @@ type Agg = {
 };
 type Detail = { kind: "person" | "project"; id: string | null; name: string };
 
+function hm(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Stejné datum, nový čas HH:MM (lokálně). */
+function withTime(iso: string, time: string): string {
+  const d = new Date(iso);
+  const [h, m] = time.split(":").map(Number);
+  d.setHours(h, m, 0, 0);
+  return d.toISOString();
+}
+
 export default function ReportsView({
   wsId,
+  userId,
   isAdmin = true,
 }: {
   wsId: string;
+  userId?: string;
   isAdmin?: boolean;
 }) {
   const supabase = createClient();
@@ -64,6 +79,7 @@ export default function ReportsView({
   const [to, setTo] = useState(today());
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [hrTargets, setHrTargets] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [tab, setTab] = useState<"person" | "project">("person");
@@ -100,8 +116,70 @@ export default function ReportsView({
       .order("position")
       .order("name")
       .then(({ data }) => setProjects((data as Project[]) ?? []));
+    // HR s grantem smí záznamy přidělených lidí i upravovat (0043);
+    // právo hlídá RLS, tady jen zjišťujeme, komu zobrazit editační pole
+    if (userId) {
+      (async () => {
+        const [{ data: me }, { data: grants }] = await Promise.all([
+          supabase
+            .from("workspace_members")
+            .select("can_hr")
+            .eq("workspace_id", wsId)
+            .eq("user_id", userId)
+            .maybeSingle(),
+          supabase
+            .from("hr_grants")
+            .select("target_id")
+            .eq("workspace_id", wsId)
+            .eq("user_id", userId),
+        ]);
+        setHrTargets(
+          me?.can_hr
+            ? new Set((grants ?? []).map((g) => g.target_id as string))
+            : new Set()
+        );
+      })();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsId]);
+  }, [wsId, userId]);
+
+  /** Smí přihlášený tenhle záznam upravovat? (vlastní / admin / HR grant) */
+  function canEdit(entry: TimeEntry): boolean {
+    return (
+      isAdmin || entry.user_id === userId || hrTargets.has(entry.user_id)
+    );
+  }
+
+  /** Uloží dílčí úpravu záznamu (popis, časy) a promítne ji lokálně. */
+  async function saveEntry(
+    entry: TimeEntry,
+    patch: Partial<Pick<TimeEntry, "description" | "started_at" | "stopped_at">>
+  ) {
+    const { error } = await supabase
+      .from("time_entries")
+      .update(patch)
+      .eq("id", entry.id);
+    if (error) {
+      toast("Úpravu se nepodařilo uložit.", "error");
+      return;
+    }
+    setEntries((prev) =>
+      prev.map((e) => (e.id === entry.id ? { ...e, ...patch } : e))
+    );
+    toast("Záznam upraven.");
+  }
+
+  function saveTime(entry: TimeEntry, which: "started_at" | "stopped_at", time: string) {
+    if (!time) return;
+    const iso = withTime(entry[which]!, time);
+    const started = which === "started_at" ? iso : entry.started_at;
+    const stopped = which === "stopped_at" ? iso : entry.stopped_at;
+    if (stopped && started >= stopped) {
+      toast("Konec musí být po začátku.", "error");
+      return;
+    }
+    saveEntry(entry, { [which]: iso });
+  }
 
   /** Přeřazení záznamu do jiného projektu; karta z původního projektu se odpojí. */
   async function reassign(entry: TimeEntry, projectId: string | null) {
@@ -421,13 +499,33 @@ export default function ReportsView({
                 </tr>
               </thead>
               <tbody>
-                {detailEntries.map((entry) => (
+                {detailEntries.map((entry) => {
+                  const editable = canEdit(entry);
+                  return (
                   <tr key={entry.id} className="border-b border-line/50 last:border-0">
                     <td className="whitespace-nowrap px-3 py-2 text-ink-soft">
                       {fmtDate(entry.started_at)}
                     </td>
-                    <td className="max-w-64 truncate px-3 py-2">
-                      {entry.tasks?.title || entry.description || "—"}
+                    <td className="max-w-64 px-3 py-1">
+                      {editable ? (
+                        <input
+                          key={`${entry.id}-desc`}
+                          type="text"
+                          defaultValue={entry.description ?? ""}
+                          placeholder={entry.tasks?.title || "Popis…"}
+                          aria-label="Popis záznamu"
+                          onBlur={(e) => {
+                            const v = e.target.value.trim();
+                            if (v !== (entry.description ?? ""))
+                              saveEntry(entry, { description: v });
+                          }}
+                          className="input w-full min-w-36 truncate px-2 py-1 text-sm"
+                        />
+                      ) : (
+                        <span className="block truncate py-1">
+                          {entry.tasks?.title || entry.description || "—"}
+                        </span>
+                      )}
                     </td>
                     {detail.kind === "project" && (
                       <td className="px-3 py-2 text-ink-soft">
@@ -435,21 +533,63 @@ export default function ReportsView({
                       </td>
                     )}
                     <td className="px-1 py-1">
-                      <ProjectPicker
-                        projects={projects}
-                        value={entry.project_id}
-                        onChange={(id) => reassign(entry, id)}
-                        align="left"
-                      />
+                      {editable ? (
+                        <ProjectPicker
+                          projects={projects}
+                          value={entry.project_id}
+                          onChange={(id) => reassign(entry, id)}
+                          align="left"
+                        />
+                      ) : (
+                        <span className="flex items-center gap-1.5 px-1 py-1 text-ink-soft">
+                          <ProjectDot id={entry.project_id} />
+                          <span className="truncate">
+                            {entry.projects?.name ?? "Bez projektu"}
+                          </span>
+                        </span>
+                      )}
                     </td>
-                    <td className="hidden whitespace-nowrap px-3 py-2 text-ink-soft sm:table-cell">
-                      {fmtTime(entry.started_at)} – {entry.stopped_at ? fmtTime(entry.stopped_at) : ""}
+                    <td className="hidden whitespace-nowrap px-3 py-1 text-ink-soft sm:table-cell">
+                      {editable ? (
+                        <span className="flex items-center gap-1">
+                          <input
+                            key={`${entry.id}-start`}
+                            type="time"
+                            defaultValue={hm(entry.started_at)}
+                            aria-label="Začátek"
+                            onBlur={(e) =>
+                              e.target.value !== hm(entry.started_at) &&
+                              saveTime(entry, "started_at", e.target.value)
+                            }
+                            className="input px-1.5 py-0.5 text-xs"
+                          />
+                          <span className="text-ink-soft/50">–</span>
+                          <input
+                            key={`${entry.id}-stop`}
+                            type="time"
+                            defaultValue={entry.stopped_at ? hm(entry.stopped_at) : ""}
+                            aria-label="Konec"
+                            onBlur={(e) =>
+                              entry.stopped_at &&
+                              e.target.value !== hm(entry.stopped_at) &&
+                              saveTime(entry, "stopped_at", e.target.value)
+                            }
+                            className="input px-1.5 py-0.5 text-xs"
+                          />
+                        </span>
+                      ) : (
+                        <>
+                          {fmtTime(entry.started_at)} –{" "}
+                          {entry.stopped_at ? fmtTime(entry.stopped_at) : ""}
+                        </>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums">
                       {fmtDuration(entrySeconds(entry.started_at, entry.stopped_at))}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             </div>

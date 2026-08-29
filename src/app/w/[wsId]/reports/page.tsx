@@ -8,6 +8,6 @@ export default async function ReportsPage({
 }) {
   const { wsId } = await params;
   await redirectTimeOnlyMember(wsId);
-  const { isAdmin } = await requireWsMember(wsId);
-  return <ReportsView wsId={wsId} isAdmin={isAdmin} />;
+  const { user, isAdmin } = await requireWsMember(wsId);
+  return <ReportsView wsId={wsId} userId={user.id} isAdmin={isAdmin} />;
 }
