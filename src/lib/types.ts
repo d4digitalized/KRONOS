@@ -177,7 +177,12 @@ export type TaskComment = {
   author_id: string;
   body: string;
   created_at: string;
-  profiles?: { full_name: string; email: string };
+  profiles?: {
+    full_name: string;
+    email: string;
+    avatar_initials?: string | null;
+    avatar_color?: string | null;
+  };
 };
 
 export type TaskAttachment = {

@@ -83,16 +83,27 @@ function fmtStamp(iso: string): string {
   });
 }
 
-/** @tagy v textu komentáře zvýrazní barvou akcentu. */
+/** @tagy zvýrazní akcentem, URL udělá klikací; dlouhé odkazy zalamuje,
+    aby nepřetékaly z bubliny. */
 function CommentBody({ body }: { body: string }) {
-  const parts = body.split(/(@[a-z0-9_.]{2,30})/gi);
+  const parts = body.split(/(@[a-z0-9_.]{2,30}|https?:\/\/[^\s<>"')]+)/gi);
   return (
-    <p className="whitespace-pre-wrap text-sm">
+    <p className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
       {parts.map((part, i) =>
         /^@[a-z0-9_.]{2,30}$/i.test(part) ? (
           <span key={i} className="font-medium text-accent">
             {part}
           </span>
+        ) : /^https?:\/\//i.test(part) ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-all text-accent underline decoration-accent/40 hover:decoration-accent"
+          >
+            {part}
+          </a>
         ) : (
           part
         )
@@ -198,7 +209,7 @@ export default function CardModal({
   const loadComments = useCallback(async () => {
     const { data } = await supabase
       .from("task_comments")
-      .select("*, profiles(full_name, email)")
+      .select("*, profiles(full_name, email, avatar_initials, avatar_color)")
       .eq("task_id", task.id)
       .order("created_at");
     setComments((data as TaskComment[]) ?? []);
@@ -810,11 +821,11 @@ export default function CardModal({
   }[] = [
     ...comments.map((c) => ({ id: `c-${c.id}`, at: c.created_at, comment: c })),
     ...activity.map((a) => ({ id: `a-${a.id}`, at: a.created_at, act: a })),
-  ].sort((x, y) => x.at.localeCompare(y.at));
+  ].sort((x, y) => y.at.localeCompare(x.at)); // nejnovější nahoře
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-y-auto bg-black/40 sm:items-start sm:p-10"
+      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-y-auto bg-black/65 backdrop-blur-[2px] sm:items-start sm:p-10"
       onClick={close}
     >
       <div
@@ -823,7 +834,7 @@ export default function CardModal({
         aria-modal="true"
         aria-label={`Karta: ${task.title}`}
         tabIndex={-1}
-        className="pb-safe flex w-full flex-col bg-surface shadow-xl outline-none sm:h-[86vh] sm:max-w-4xl sm:rounded-xl"
+        className="pb-safe flex w-full flex-col bg-surface shadow-xl outline-none sm:h-[86vh] sm:max-w-5xl sm:rounded-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* horní lišta: projekt (přesun karty mezi projekty) + zavřít */}
@@ -1345,60 +1356,19 @@ export default function CardModal({
             {error && <p className="text-sm text-red-600">{error}</p>}
           </div>
 
-          {/* pravý panel: komentáře a aktivita */}
-          <div className="flex w-full shrink-0 flex-col border-t border-line bg-paper/40 sm:w-80 sm:overflow-hidden sm:border-l sm:border-t-0 lg:w-96">
+          {/* pravý panel: komentáře a aktivita — nejnovější nahoře,
+              psaní hned pod hlavičkou */}
+          <div className="flex w-full shrink-0 flex-col border-t border-line bg-paper/40 sm:w-96 sm:overflow-hidden sm:border-l sm:border-t-0 lg:w-[28rem]">
             <h3 className="border-b border-line px-4 py-2.5 text-sm font-semibold">
               Komentáře a aktivita
             </h3>
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-              {timeline.length === 0 && (
-                <p className="text-xs text-ink-soft/70">Zatím žádná aktivita.</p>
-              )}
-              {timeline.map((row) =>
-                row.comment ? (
-                  <div key={row.id} className="rounded-lg border border-line bg-surface p-2">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-xs font-medium">
-                        {row.comment.profiles?.full_name ||
-                          row.comment.profiles?.email}
-                      </span>
-                      <span className="text-[10px] text-ink-soft/70">
-                        {fmtStamp(row.comment.created_at)}
-                      </span>
-                      {row.comment.author_id === userId && (
-                        <button
-                          onClick={() => removeComment(row.comment!)}
-                          className="ml-auto text-[10px] text-ink-soft/70 hover:text-danger"
-                        >
-                          smazat
-                        </button>
-                      )}
-                    </div>
-                    <CommentBody body={row.comment.body} />
-                  </div>
-                ) : (
-                  <p key={row.id} className="px-1 text-xs text-ink-soft/70">
-                    <span className="font-medium text-ink-soft">
-                      {row.act!.profiles?.full_name ||
-                        row.act!.profiles?.email ||
-                        "Systém"}
-                    </span>{" "}
-                    {activityText(row.act!)}
-                    <span className="text-ink-soft/50">
-                      {" · "}
-                      {fmtStamp(row.act!.created_at)}
-                    </span>
-                  </p>
-                )
-              )}
-            </div>
-            <form onSubmit={addComment} className="flex gap-2 border-t border-line p-3">
+            <form onSubmit={addComment} className="flex gap-2 border-b border-line p-3">
             <div className="relative flex-1">
               {mentionQuery !== null && mentionSuggestions.length > 0 && (
                 <ul
                   role="listbox"
                   aria-label="Zmínit uživatele"
-                  className="absolute bottom-full left-0 z-10 mb-1 w-64 overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-lg"
+                  className="absolute left-0 top-full z-10 mt-1 w-64 overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-lg"
                 >
                   {mentionSuggestions.map((m, i) => (
                     <li key={m.user_id} role="option" aria-selected={i === mentionActive}>
@@ -1448,6 +1418,53 @@ export default function CardModal({
               {sending ? "…" : "Odeslat"}
             </button>
             </form>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+              {timeline.length === 0 && (
+                <p className="text-xs text-ink-soft/70">Zatím žádná aktivita.</p>
+              )}
+              {timeline.map((row) =>
+                row.comment ? (
+                  <div key={row.id} className="rounded-lg border border-line bg-surface p-2">
+                    <div className="flex items-center gap-2">
+                      <Avatar
+                        profile={row.comment.profiles}
+                        colorKey={row.comment.author_id}
+                        size="sm"
+                      />
+                      <span className="min-w-0 truncate text-xs font-medium">
+                        {row.comment.profiles?.full_name ||
+                          row.comment.profiles?.email}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-ink-soft/70">
+                        {fmtStamp(row.comment.created_at)}
+                      </span>
+                      {row.comment.author_id === userId && (
+                        <button
+                          onClick={() => removeComment(row.comment!)}
+                          className="ml-auto shrink-0 text-[10px] text-ink-soft/70 hover:text-danger"
+                        >
+                          smazat
+                        </button>
+                      )}
+                    </div>
+                    <CommentBody body={row.comment.body} />
+                  </div>
+                ) : (
+                  <p key={row.id} className="px-1 text-xs text-ink-soft/70">
+                    <span className="font-medium text-ink-soft">
+                      {row.act!.profiles?.full_name ||
+                        row.act!.profiles?.email ||
+                        "Systém"}
+                    </span>{" "}
+                    {activityText(row.act!)}
+                    <span className="text-ink-soft/50">
+                      {" · "}
+                      {fmtStamp(row.act!.created_at)}
+                    </span>
+                  </p>
+                )
+              )}
+            </div>
           </div>
         </div>
 
