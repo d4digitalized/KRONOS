@@ -108,9 +108,13 @@ export default function NotificationsView({ userId }: { userId: string }) {
       ) : (
         <div className="divide-y divide-line/50 panel">
           {items.map((n) => {
-            const href = n.project_id
-              ? `/w/${n.workspace_id}/b/${n.project_id}`
-              : `/w/${n.workspace_id}`;
+            // /t/<id> otevře kartu přímo (nástěnka i úkol bez projektu);
+            // starší notifikace bez task_id padají na nástěnku / firmu
+            const href = n.task_id
+              ? `/t/${n.task_id}`
+              : n.project_id
+                ? `/w/${n.workspace_id}/b/${n.project_id}`
+                : `/w/${n.workspace_id}`;
             return (
               <Link
                 key={n.id}
