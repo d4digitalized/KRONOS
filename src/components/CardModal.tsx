@@ -74,6 +74,13 @@ function localTime(iso: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** Textarea názvu roste s obsahem (1–3 řádky), místo useknutého inputu. */
+function autoGrow(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 function fmtStamp(iso: string): string {
   return new Date(iso).toLocaleString("cs-CZ", {
     day: "numeric",
@@ -182,6 +189,10 @@ export default function CardModal({
   const commentRef = useRef<HTMLInputElement>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionActive, setMentionActive] = useState(0);
+  // mobil: karta má záložky Úkol / Komentáře (na desktopu oba sloupce vedle sebe)
+  const [mobileTab, setMobileTab] = useState<"task" | "comments">("task");
+  // počet komentářů naposledy viděných v záložce Komentáře → tečka u nových
+  const [seenComments, setSeenComments] = useState<number | null>(null);
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -212,7 +223,9 @@ export default function CardModal({
       .select("*, profiles(full_name, email, avatar_initials, avatar_color)")
       .eq("task_id", task.id)
       .order("created_at");
-    setComments((data as TaskComment[]) ?? []);
+    const list = (data as TaskComment[]) ?? [];
+    setComments(list);
+    setSeenComments((seen) => seen ?? list.length); // první načtení = viděno
   }, [supabase, task.id]);
 
   const loadActivity = useCallback(async () => {
@@ -812,6 +825,12 @@ export default function CardModal({
   const canClearWaiting =
     !!followup && (followup.created_by === userId || isAdmin);
 
+  useEffect(() => {
+    if (mobileTab === "comments") setSeenComments(comments.length);
+  }, [mobileTab, comments.length]);
+  const unseenComments =
+    seenComments !== null && comments.length > seenComments;
+
   // komentáře + systémová aktivita v jednom časovém toku
   const timeline: {
     id: string;
@@ -911,9 +930,56 @@ export default function CardModal({
           </button>
         </div>
 
-        {/* tělo: obsah vlevo, komentáře/aktivita vpravo (na mobilu pod sebou) */}
-        <div className="flex min-h-0 flex-1 flex-col sm:flex-row sm:overflow-hidden">
-          <div className="min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+        {/* mobil: záložky Úkol / Komentáře; každá má vlastní scroll v celé výšce */}
+        <div
+          role="tablist"
+          aria-label="Části karty"
+          className="flex shrink-0 border-b border-line sm:hidden"
+        >
+          {(["task", "comments"] as const).map((tab) => {
+            const active = mobileTab === tab;
+            return (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setMobileTab(tab)}
+                className={`relative flex flex-1 items-center justify-center gap-1.5 py-2.5 text-sm font-medium transition-colors ${
+                  active ? "text-accent" : "text-ink-soft/70"
+                }`}
+              >
+                {tab === "task" ? "Úkol" : "Komentáře"}
+                {tab === "comments" && comments.length > 0 && (
+                  <span
+                    className={`rounded-full px-1.5 text-xs ${
+                      active ? "bg-accent-soft text-accent" : "bg-black/5 text-ink-soft"
+                    }`}
+                  >
+                    {comments.length}
+                  </span>
+                )}
+                {tab === "comments" && !active && unseenComments && (
+                  <span
+                    className="h-2 w-2 rounded-full bg-accent"
+                    aria-label="Nové komentáře"
+                  />
+                )}
+                {active && (
+                  <span className="absolute inset-x-8 bottom-0 h-0.5 rounded-full bg-accent" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* tělo: obsah vlevo, komentáře/aktivita vpravo (na mobilu záložky) */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
+          <div
+            className={`min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:block sm:p-5 ${
+              mobileTab === "task" ? "" : "hidden"
+            }`}
+          >
             <div className="flex items-start gap-3">
               <input
                 type="checkbox"
@@ -922,15 +988,23 @@ export default function CardModal({
                 className="mt-1.5 h-4 w-4"
                 title="Hotovo"
               />
-              <input
-                type="text"
+              <textarea
+                ref={autoGrow}
+                rows={1}
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  autoGrow(e.currentTarget);
+                }}
                 onBlur={saveTitle}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") e.currentTarget.blur();
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
                 }}
-                className="flex-1 rounded-md border border-transparent px-2 py-1 text-lg font-semibold hover:border-line focus:border-line"
+                aria-label="Název"
+                className="min-w-0 flex-1 resize-none overflow-hidden rounded-md border border-transparent px-2 py-1 text-lg font-semibold leading-snug hover:border-line focus:border-line"
               />
             </div>
 
@@ -965,10 +1039,10 @@ export default function CardModal({
           </div>
         )}
 
-        {/* řešitel + vedoucí na jednom řádku */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <div className="flex items-center gap-1.5">
-          <span className="text-xs text-ink-soft/70">Řešitel:</span>
+        {/* řešitel + vedoucí: desktop na jednom řádku, mobil popisek | hodnota */}
+        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-center gap-y-2.5 sm:flex sm:flex-wrap sm:gap-x-4 sm:gap-y-1.5">
+          <div className="contents sm:flex sm:items-center sm:gap-1.5">
+          <span className="text-sm text-ink-soft/70 sm:text-xs">Řešitel:</span>
           {canEditAssignee ? (
             <PersonPicker
               wsId={task.workspace_id}
@@ -1004,8 +1078,8 @@ export default function CardModal({
 
           {/* vedoucí — nastavuje jen admin; ostatní jen vidí, kdo úkol vede */}
           {(isAdmin || leadId) && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-ink-soft/70">Vedoucí:</span>
+            <div className="contents sm:flex sm:items-center sm:gap-1.5">
+              <span className="text-sm text-ink-soft/70 sm:text-xs">Vedoucí:</span>
             {isAdmin ? (
               <PersonPicker
                 wsId={task.workspace_id}
@@ -1041,8 +1115,9 @@ export default function CardModal({
         {/* follow-up: úkol čeká na dodání členem či externím kontaktem;
             nastavují jen delegátoři (admin / can_delegate), chip vidí všichni */}
         {(canDelegate || followup) && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-ink-soft/70">Čekám na:</span>
+        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-center gap-y-2 sm:flex sm:flex-wrap sm:gap-1.5">
+          <span className="text-sm text-ink-soft/70 sm:text-xs">Čekám na:</span>
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           {followup ? (
             <>
               <span
@@ -1123,10 +1198,13 @@ export default function CardModal({
               iconPath={HOURGLASS_ICON}
             />
           )}
+          </div>
         </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-2">
+        {/* termín, priorita, opakování, timer: mobil v řádcích s popisky */}
+        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-center gap-y-2 sm:flex sm:flex-wrap sm:gap-2">
+          <span className="text-sm text-ink-soft/70 sm:hidden">Termín:</span>
           <input
             type="date"
             value={dueDate}
@@ -1135,8 +1213,9 @@ export default function CardModal({
               autosave({ due_date: e.target.value || null });
             }}
             aria-label="Termín"
-            className="input px-2 py-1"
+            className="input h-10 w-full px-2 py-1 sm:h-auto sm:w-auto"
           />
+          <span className="text-sm text-ink-soft/70 sm:hidden">Priorita:</span>
           <select
             value={priority}
             onChange={(e) => {
@@ -1145,7 +1224,7 @@ export default function CardModal({
             }}
             aria-label="Priorita"
             style={{ color: priorityColor(priority) ?? undefined }}
-            className="input px-2"
+            className="input h-10 w-full px-2 sm:h-auto sm:w-auto"
           >
             {PRIORITIES.map((p) => (
               <option key={p.value} value={p.value}>
@@ -1153,6 +1232,7 @@ export default function CardModal({
               </option>
             ))}
           </select>
+          <span className="text-sm text-ink-soft/70 sm:hidden">Opakování:</span>
           <select
             value={recurrence}
             onChange={(e) => {
@@ -1162,7 +1242,7 @@ export default function CardModal({
               });
             }}
             aria-label="Opakování"
-            className="input px-2"
+            className="input h-10 w-full px-2 sm:h-auto sm:w-auto"
           >
             {RECURRENCE_OPTIONS.map((r) => (
               <option key={r.value} value={r.value}>
@@ -1172,13 +1252,13 @@ export default function CardModal({
           </select>
           <button
             onClick={play}
-            className="rounded-md border border-accent/50 px-3 py-1.5 text-sm text-accent hover:bg-accent-soft"
+            className="col-span-2 h-10 rounded-md border border-accent/50 px-3 py-1.5 text-sm text-accent hover:bg-accent-soft sm:col-span-1 sm:h-auto"
           >
             ▶ Spustit timer
           </button>
           {canTogglePrivate && (
             <label
-              className="flex cursor-pointer items-center gap-1.5 text-sm text-ink-soft"
+              className="col-span-2 flex cursor-pointer items-center gap-1.5 text-sm text-ink-soft sm:col-span-1"
               title="Skrytý úkol vidí jen jeho autor — řešitelé, ostatní ani admin ne. Nechodí z něj žádné notifikace."
             >
               <input
@@ -1202,13 +1282,14 @@ export default function CardModal({
 
         {/* plánované okno — kdy na tom budu dělat; propíše se do kalendáře
             „Kronos" řešitelů (Google Workspace) */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-center gap-y-2 sm:flex sm:flex-wrap sm:gap-1.5">
           <span
-            className="text-xs text-ink-soft/70"
+            className="text-sm text-ink-soft/70 sm:text-xs"
             title="Naplánované okno se uloží řešitelům do Google kalendáře „Kronos“."
           >
             🗓 Plán:
           </span>
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <input
             type="date"
             value={planDate}
@@ -1217,7 +1298,7 @@ export default function CardModal({
               savePlan(e.target.value, planFrom, planTo);
             }}
             aria-label="Den plánu"
-            className="input px-2 py-1 text-sm"
+            className="input h-10 w-full px-2 py-1 text-sm sm:h-auto sm:w-auto"
           />
           <input
             type="time"
@@ -1227,7 +1308,7 @@ export default function CardModal({
               savePlan(planDate, e.target.value, planTo);
             }}
             aria-label="Plán od"
-            className="input px-2 py-1 text-sm"
+            className="input h-10 flex-1 px-2 py-1 text-sm sm:h-auto sm:flex-none"
           />
           <span className="text-ink-soft/50">–</span>
           <input
@@ -1238,7 +1319,7 @@ export default function CardModal({
               savePlan(planDate, planFrom, e.target.value);
             }}
             aria-label="Plán do"
-            className="input px-2 py-1 text-sm"
+            className="input h-10 flex-1 px-2 py-1 text-sm sm:h-auto sm:flex-none"
           />
           {(planDate || planFrom || planTo) && (
             <button
@@ -1250,6 +1331,7 @@ export default function CardModal({
               ×
             </button>
           )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
@@ -1358,8 +1440,12 @@ export default function CardModal({
 
           {/* pravý panel: komentáře a aktivita — nejnovější nahoře,
               psaní hned pod hlavičkou */}
-          <div className="flex w-full shrink-0 flex-col border-t border-line bg-paper/40 sm:w-96 sm:overflow-hidden sm:border-l sm:border-t-0 lg:w-[28rem]">
-            <h3 className="border-b border-line px-4 py-2.5 text-sm font-semibold">
+          <div
+            className={`w-full min-w-0 flex-col border-line bg-paper/40 sm:flex sm:w-96 sm:flex-none sm:overflow-hidden sm:border-l lg:w-[28rem] ${
+              mobileTab === "comments" ? "flex min-h-0 flex-1 overflow-hidden" : "hidden"
+            }`}
+          >
+            <h3 className="hidden border-b border-line px-4 py-2.5 text-sm font-semibold sm:block">
               Komentáře a aktivita
             </h3>
             <form onSubmit={addComment} className="flex gap-2 border-b border-line p-3">
@@ -1469,7 +1555,7 @@ export default function CardModal({
         </div>
 
         {/* patička přes celou šířku */}
-        <div className="flex items-center justify-between border-t border-line px-3 py-2.5 sm:px-4">
+        <div className="flex shrink-0 items-center justify-between border-t border-line px-3 py-2.5 sm:px-4">
           <button
             onClick={remove}
             className="rounded-md px-2 py-1 text-sm text-danger hover:bg-danger/10"
