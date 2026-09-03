@@ -11,6 +11,7 @@ import ProjectPicker from "@/components/ProjectPicker";
 import PersonPicker, { HOURGLASS_ICON } from "@/components/PersonPicker";
 import TaskRow, { TaskGroup } from "@/components/TaskRow";
 import type { Contact, Membership, Project, Task } from "@/lib/types";
+import { ListSkeleton } from "@/components/Skeletons";
 
 // Modal se načte až při otevření karty — nezatěžuje základní bundle routy.
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
@@ -313,7 +314,7 @@ export default function InboxView({
     dismiss(task);
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <ListSkeleton />;
 
   return (
     <div className="w-full space-y-4">

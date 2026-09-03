@@ -6,6 +6,7 @@ import { toast } from "@/lib/toast";
 import { entrySeconds } from "@/lib/format";
 import { ProjectDot } from "@/components/ProjectPicker";
 import type { Project, TimeEntry } from "@/lib/types";
+import { ListSkeleton } from "@/components/Skeletons";
 
 /** Délka pracovního dne, do které se procenta rozpadají. */
 const DAY_HOURS = 8;
@@ -184,7 +185,7 @@ export default function PercentReportView({
     load();
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <ListSkeleton />;
 
   const today = isoDay(new Date());
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));

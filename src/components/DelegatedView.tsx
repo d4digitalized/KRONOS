@@ -10,6 +10,7 @@ import { cacheGet, cacheSet } from "@/lib/viewCache";
 import { TASKS_CHANGED_EVENT } from "@/lib/tasksChanged";
 import TaskRow, { TaskGroup } from "@/components/TaskRow";
 import type { Membership, Task, TaskFollowup } from "@/lib/types";
+import { ListSkeleton } from "@/components/Skeletons";
 
 // Modal se načte až při otevření karty — nezatěžuje základní bundle routy.
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
@@ -164,7 +165,7 @@ export default function DelegatedView({
     load();
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <ListSkeleton />;
 
   // skupiny podle slíbeného termínu „do kdy" (rows už seřazené v load())
   const groups = waitBuckets(rows.filter((r) => r.tasks));

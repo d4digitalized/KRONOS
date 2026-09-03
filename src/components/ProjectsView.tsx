@@ -8,6 +8,7 @@ import { loadProjectColors } from "@/lib/projectColors";
 import { ProjectDot, projectColor } from "@/components/ProjectPicker";
 import Avatar, { AVATAR_COLORS } from "@/components/Avatar";
 import type { Membership, Project, ProjectCategory } from "@/lib/types";
+import { ListSkeleton } from "@/components/Skeletons";
 
 /** Nick pro řazení a popisky: @tag, jinak jméno / e-mail. */
 function memberNick(m: Membership): string {
@@ -331,7 +332,7 @@ export default function ProjectsView({ wsId }: { wsId: string }) {
     }
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <ListSkeleton />;
 
   return (
     <div className="space-y-4">

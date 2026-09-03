@@ -10,6 +10,7 @@ import { TASKS_CHANGED_EVENT } from "@/lib/tasksChanged";
 import TaskRow, { TaskGroup, dueBuckets } from "@/components/TaskRow";
 import Avatar, { type AvatarLike } from "@/components/Avatar";
 import type { Contact, Membership, Task } from "@/lib/types";
+import { ListSkeleton } from "@/components/Skeletons";
 
 // Modal se načte až při otevření karty — nezatěžuje základní bundle routy.
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
@@ -151,7 +152,7 @@ export default function MyTasksView({
     load();
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <ListSkeleton />;
 
   const shown = mode === "mine" ? tasks : leadTasks;
   const groups = dueBuckets(shown);

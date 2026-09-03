@@ -12,6 +12,7 @@ import { ProjectDot } from "@/components/ProjectPicker";
 import Avatar from "@/components/Avatar";
 import TaskRow, { TaskGroup } from "@/components/TaskRow";
 import type { Contact, Membership, Project, Task } from "@/lib/types";
+import { ListSkeleton } from "@/components/Skeletons";
 
 // Modal karty se dogeneruje až při otevření (mimo základní bundle routy).
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
@@ -166,7 +167,7 @@ export default function TasksView({
     load();
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <ListSkeleton />;
 
   const q = fText.trim().toLowerCase();
   // tým = já + lidé s grantem; admin vidí všechny

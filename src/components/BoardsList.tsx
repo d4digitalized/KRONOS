@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { ProjectDot, projectColor } from "@/components/ProjectPicker";
 import Avatar from "@/components/Avatar";
 import type { Membership, Project, ProjectCategory } from "@/lib/types";
+import { BoardsListSkeleton } from "@/components/Skeletons";
 
 /** Nick pro řazení koleček: @tag, jinak jméno / e-mail. */
 function memberNick(m: Membership): string {
@@ -77,7 +78,7 @@ export default function BoardsList({
     load();
   }, [load]);
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <BoardsListSkeleton />;
 
   const query = q.trim().toLowerCase();
   const catColor = (c: ProjectCategory) => c.color || projectColor(c.id);

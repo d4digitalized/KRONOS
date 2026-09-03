@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import { NOTIFICATIONS_CHANGED_EVENT } from "@/components/NotificationsBell";
 import type { AppNotification } from "@/lib/types";
+import { ListSkeleton } from "@/components/Skeletons";
 
 const KIND_ICON: Record<AppNotification["kind"], string> = {
   assigned:
@@ -82,7 +83,7 @@ export default function NotificationsView({ userId }: { userId: string }) {
     notifyBell();
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <ListSkeleton />;
 
   const unread = items.filter((i) => !i.read_at).length;
 

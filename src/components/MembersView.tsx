@@ -16,6 +16,7 @@ import ContactsSection from "@/components/ContactsSection";
 import { toast } from "@/lib/toast";
 import { confirmDialog } from "@/lib/confirm";
 import type { Membership, Role } from "@/lib/types";
+import { ListSkeleton } from "@/components/Skeletons";
 
 const USER_ICON =
   "M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
@@ -185,7 +186,7 @@ export default function MembersView({
     load();
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <ListSkeleton />;
 
   return (
     <div className="space-y-4">

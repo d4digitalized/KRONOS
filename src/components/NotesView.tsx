@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
+import { ListSkeleton } from "@/components/Skeletons";
 
 /** Osobní poznámkový blok (scratchpad) v Masteru — jedna plain textová
     plocha na uživatele a firmu. Soukromé (RLS), ukládá se samo:
@@ -68,7 +69,7 @@ export default function NotesView({
     };
   }, [content, loading, save]);
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <ListSkeleton />;
 
   return (
     <div className="flex h-full min-h-0 flex-col space-y-3">

@@ -32,6 +32,7 @@ import { fmtDate } from "@/lib/format";
 import { priorityColor } from "@/lib/priority";
 import { ProjectDot, projectColor } from "@/components/ProjectPicker";
 import type { Membership, Task } from "@/lib/types";
+import { ListSkeleton } from "@/components/Skeletons";
 
 // Modal se načte až při otevření karty — nezatěžuje základní bundle routy.
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
@@ -182,7 +183,7 @@ export default function PriorityListView({
     }
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <ListSkeleton />;
 
   const today = isoDay(new Date());
   // firmy, ze kterých mám úkoly — v pořadí prvního výskytu

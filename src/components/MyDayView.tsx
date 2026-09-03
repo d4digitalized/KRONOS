@@ -22,6 +22,7 @@ import { fmtClock } from "@/lib/format";
 import { syncTaskCalendar } from "@/app/actions/calendar";
 import { ProjectDot, projectColor } from "@/components/ProjectPicker";
 import type { Membership, Task } from "@/lib/types";
+import { MyDaySkeleton } from "@/components/Skeletons";
 
 // karta se dogeneruje až při otevření — jako na ostatních obrazovkách
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
@@ -580,7 +581,7 @@ export default function MyDayView({
     load();
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <MyDaySkeleton />;
 
   const projectOptions: { key: string; label: string }[] = [];
   for (const t of candidates) {

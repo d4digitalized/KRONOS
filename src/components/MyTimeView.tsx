@@ -9,6 +9,7 @@ import { confirmDialog } from "@/lib/confirm";
 import Picker from "@/components/Picker";
 import ProjectPicker, { ProjectDot } from "@/components/ProjectPicker";
 import type { Project, Task, TimeEntry } from "@/lib/types";
+import { ListSkeleton } from "@/components/Skeletons";
 
 const CARD_ICON = "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM7 9h10M7 13h6";
 
@@ -172,7 +173,7 @@ export default function MyTimeView({
     load();
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <ListSkeleton />;
 
   const byDay = new Map<string, TimeEntry[]>();
   for (const entry of entries) {

@@ -36,6 +36,7 @@ import { PRIORITIES } from "@/lib/priority";
 import type { BoardColumn, Label, Membership, Task } from "@/lib/types";
 import BoardCard from "@/components/BoardCard";
 import { ProjectDot } from "@/components/ProjectPicker";
+import { BoardSkeleton } from "@/components/Skeletons";
 
 // Modal karty mimo základní bundle nástěnky — načte se až při otevření.
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
@@ -398,6 +399,32 @@ export default function BoardView({
 
   // ---------------------------------------------------------------- drag & drop
 
+  /** Optimistický přesun karty do cílového sloupce (běžného i automatického):
+   *  karta zůstane tam, kam ji uživatel pustil, hned — bez čekání na server
+   *  a bez optického návratu do původního sloupce. load() pak stav srovná. */
+  function moveLocally(taskId: string, target: string, patch: Partial<Task>) {
+    const fromCol = findColumnOf(taskId);
+    const moving =
+      (fromCol ? cards[fromCol]?.find((t) => t.id === taskId) : undefined) ??
+      holdTasks.find((t) => t.id === taskId) ??
+      waitingTasks.find((t) => t.id === taskId) ??
+      doneTasks.find((t) => t.id === taskId);
+    if (!moving) return;
+    const next = { ...moving, ...patch };
+    const drop = (list: Task[]) => list.filter((t) => t.id !== taskId);
+    setCards((prev) => {
+      const out: CardsByCol = {};
+      for (const key of Object.keys(prev)) out[key] = drop(prev[key]);
+      if (!target.startsWith("__")) out[target] = [...(out[target] ?? []), next];
+      return out;
+    });
+    setHoldTasks((prev) => (target === HOLD_COL ? [...drop(prev), next] : drop(prev)));
+    setWaitingTasks((prev) =>
+      target === WAITING_COL ? [...drop(prev), next] : drop(prev)
+    );
+    setDoneTasks((prev) => (target === DONE_COL ? [next, ...drop(prev)] : drop(prev)));
+  }
+
   function handleDragStart(event: DragStartEvent) {
     const id = String(event.active.id);
     if (!isColId(id)) {
@@ -486,6 +513,7 @@ export default function BoardView({
 
     if (dropTarget === WAITING_COL) {
       if (fromBoard || fromHold) {
+        moveLocally(activeId, WAITING_COL, { on_hold: false });
         // karta z Hold se probudí; follow-up (bez osoby) jen pokud už nemá
         if (fromHold) {
           await supabase.from("tasks").update({ on_hold: false }).eq("id", activeId);
@@ -508,6 +536,7 @@ export default function BoardView({
     }
     if (dropTarget === HOLD_COL) {
       if (fromBoard || fromWaiting) {
+        moveLocally(activeId, HOLD_COL, { on_hold: true });
         const { error } = await supabase
           .from("tasks")
           .update({ on_hold: true })
@@ -519,13 +548,11 @@ export default function BoardView({
     }
     if (dropTarget === DONE_COL) {
       if (fromBoard || fromHold || fromWaiting) {
+        const completed_at = new Date().toISOString();
+        moveLocally(activeId, DONE_COL, { completed_at, on_hold: false });
         const { error } = await supabase
           .from("tasks")
-          .update(
-            fromHold
-              ? { completed_at: new Date().toISOString(), on_hold: false }
-              : { completed_at: new Date().toISOString() }
-          )
+          .update(fromHold ? { completed_at, on_hold: false } : { completed_at })
           .eq("id", activeId);
         if (error) toast("Dokončení se nezdařilo.", "error");
         else pingNotifyEmails(); // opakovaná karta může přiřadit další výskyt
@@ -537,6 +564,11 @@ export default function BoardView({
     if ((fromHold || fromWaiting) && dropTarget && !dropTarget.startsWith("__")) {
       const list = cards[dropTarget] ?? [];
       const position = posBetween(list[list.length - 1]?.position, undefined);
+      moveLocally(activeId, dropTarget, {
+        on_hold: false,
+        column_id: dropTarget,
+        position,
+      });
       if (fromWaiting) {
         await supabase.from("task_followups").delete().eq("task_id", activeId);
       }
@@ -581,7 +613,7 @@ export default function BoardView({
     }
   }
 
-  if (loading) return <p className="p-4 text-ink-soft/70">Načítám…</p>;
+  if (loading) return <BoardSkeleton />;
 
   const filterActive =
     fText.trim() !== "" || fPriority !== 0 || fLabel !== "" || fAssignee !== "";
