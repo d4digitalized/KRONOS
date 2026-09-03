@@ -976,7 +976,7 @@ export default function CardModal({
         {/* tělo: obsah vlevo, komentáře/aktivita vpravo (na mobilu záložky) */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
           <div
-            className={`min-w-0 flex-1 space-y-4 overflow-y-auto p-4 sm:block sm:p-5 ${
+            className={`min-w-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-4 sm:block sm:p-5 ${
               mobileTab === "task" ? "" : "hidden"
             }`}
           >
@@ -1140,7 +1140,7 @@ export default function CardModal({
                   onChange={(e) =>
                     e.target.value && patchFollowup({ waiting_since: e.target.value })
                   }
-                  className="input px-1.5 py-0.5 text-xs disabled:opacity-70"
+                  className="input min-w-0 max-w-full px-1.5 py-0.5 text-xs disabled:opacity-70"
                 />
               </label>
               <label className="flex items-center gap-1 text-xs text-ink-soft/70">
@@ -1153,7 +1153,7 @@ export default function CardModal({
                   onChange={(e) =>
                     patchFollowup({ waiting_until: e.target.value || null })
                   }
-                  className="input px-1.5 py-0.5 text-xs disabled:opacity-70"
+                  className="input min-w-0 max-w-full px-1.5 py-0.5 text-xs disabled:opacity-70"
                 />
               </label>
               {/* čekání bez osoby (přetažení do Waiting on) — doplnit, na koho */}
@@ -1213,7 +1213,7 @@ export default function CardModal({
               autosave({ due_date: e.target.value || null });
             }}
             aria-label="Termín"
-            className="input h-10 w-full px-2 py-1 sm:h-auto sm:w-auto"
+            className="input h-10 w-full min-w-0 max-w-full px-2 py-1 sm:h-auto sm:w-auto"
           />
           <span className="text-sm text-ink-soft/70 sm:hidden">Priorita:</span>
           <select
@@ -1298,7 +1298,7 @@ export default function CardModal({
               savePlan(e.target.value, planFrom, planTo);
             }}
             aria-label="Den plánu"
-            className="input h-10 w-full px-2 py-1 text-sm sm:h-auto sm:w-auto"
+            className="input h-10 w-full min-w-0 max-w-full px-2 py-1 text-sm sm:h-auto sm:w-auto"
           />
           <input
             type="time"
@@ -1308,7 +1308,7 @@ export default function CardModal({
               savePlan(planDate, e.target.value, planTo);
             }}
             aria-label="Plán od"
-            className="input h-10 flex-1 px-2 py-1 text-sm sm:h-auto sm:flex-none"
+            className="input h-10 min-w-0 flex-1 px-2 py-1 text-sm sm:h-auto sm:flex-none"
           />
           <span className="text-ink-soft/50">–</span>
           <input
@@ -1319,7 +1319,7 @@ export default function CardModal({
               savePlan(planDate, planFrom, e.target.value);
             }}
             aria-label="Plán do"
-            className="input h-10 flex-1 px-2 py-1 text-sm sm:h-auto sm:flex-none"
+            className="input h-10 min-w-0 flex-1 px-2 py-1 text-sm sm:h-auto sm:flex-none"
           />
           {(planDate || planFrom || planTo) && (
             <button

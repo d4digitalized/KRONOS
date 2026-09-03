@@ -151,6 +151,14 @@ body {
   }
 }
 
+/* iOS drží u datumových a časových polí vnitřní minimální šířku a ignoruje
+   width kontejneru — pole pak vyleze z buňky a stránka jde posouvat do stran. */
+input[type="date"],
+input[type="time"] {
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* Bezpečné zóny (notch / gesture bar). Použití: třídy níže přidávají
    odsazení jen o velikost výřezu, na zařízeních bez výřezu jsou 0. */
 .pb-safe {
