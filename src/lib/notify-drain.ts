@@ -62,7 +62,10 @@ function renderThread(n: QueueRow, thread: ThreadComment[]): string {
     thread.length >= MAX_THREAD
       ? `<p style="margin:0 0 8px;font-size:12px;color:#5c636b;">Zobrazeno posledních ${MAX_THREAD} komentářů, starší najdeš v Kronosu.</p>`
       : "";
-  return `<p style="margin:12px 0 8px;font-size:12px;color:#5c636b;text-transform:uppercase;letter-spacing:.04em;">Celá konverzace (od nejnovější)</p>${items.join("")}${truncated}`;
+  return `<p style="margin:12px 0 8px;font-size:12px;color:#5c636b;text-transform:uppercase;letter-spacing:.04em;">Celá konverzace (od nejnovější)</p>${items.join(
+    // oddělovač mezi komentáři — <hr> zobrazí i klienti, kteří styly bloků ořežou
+    `<hr style="border:none;border-top:1px solid #e2e5e8;margin:10px 0;">`
+  )}${truncated}`;
 }
 
 function compose(
