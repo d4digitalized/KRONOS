@@ -18,7 +18,57 @@ type QueueRow = {
   body: string;
 };
 
-function compose(n: QueueRow): { subject: string; html: string } {
+type ThreadComment = {
+  author: string;
+  body: string;
+  created_at: string;
+};
+
+const MAX_THREAD = 50;
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleString("cs-CZ", {
+    timeZone: "Europe/Prague",
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function bodyHtml(body: string): string {
+  return escapeHtml(body).replaceAll("\n", "<br>");
+}
+
+/** Celé vlákno komentářů od nejnovějšího; komentář, který notifikaci
+ *  vyvolal (shoda autora a textu), je zvýrazněný. */
+function renderThread(n: QueueRow, thread: ThreadComment[]): string {
+  let highlighted = false;
+  const items = thread.map((c) => {
+    const isTrigger =
+      !highlighted &&
+      c.author === n.actor_name &&
+      c.body.startsWith(n.body);
+    if (isTrigger) highlighted = true;
+    const border = isTrigger ? "3px solid #0e7569" : "3px solid #e2e5e8";
+    const bg = isTrigger ? "#eef7f5" : "#f5f6f7";
+    return `<div style="margin:0 0 8px;padding:8px 12px;background:${bg};border-left:${border};border-radius:6px;font-size:14px;">
+<div style="margin:0 0 4px;font-size:12px;color:#5c636b;"><strong style="color:#1f2328;">${escapeHtml(c.author || "Někdo")}</strong> · ${formatDate(c.created_at)}</div>
+<div>${bodyHtml(c.body)}</div>
+</div>`;
+  });
+  const truncated =
+    thread.length >= MAX_THREAD
+      ? `<p style="margin:0 0 8px;font-size:12px;color:#5c636b;">Zobrazeno posledních ${MAX_THREAD} komentářů, starší najdeš v Kronosu.</p>`
+      : "";
+  return `<p style="margin:12px 0 8px;font-size:12px;color:#5c636b;text-transform:uppercase;letter-spacing:.04em;">Celá konverzace (od nejnovější)</p>${items.join("")}${truncated}`;
+}
+
+function compose(
+  n: QueueRow,
+  thread: ThreadComment[]
+): { subject: string; html: string } {
   // /t/<id> dohledá úkol a otevře jeho kartu přímo (nástěnka i úkol bez
   // projektu); bez task_id (nemělo by nastat) padáme na firmu
   const link = n.task_id
@@ -41,13 +91,18 @@ function compose(n: QueueRow): { subject: string; html: string } {
       ),
     };
   }
-  const quoted = `<blockquote style="margin:0;padding:8px 12px;background:#f5f6f7;border-left:3px solid #0e7569;border-radius:6px;font-size:14px;">${escapeHtml(n.body)}</blockquote>`;
+  // vlákno je k dispozici → celý přepis od nejnovějšího; bez něj (smazané
+  // komentáře, výpadek dotazu) aspoň citace samotné zprávy
+  const conversation =
+    thread.length > 0
+      ? renderThread(n, thread)
+      : `<blockquote style="margin:0;padding:8px 12px;background:#f5f6f7;border-left:3px solid #0e7569;border-radius:6px;font-size:14px;">${bodyHtml(n.body)}</blockquote>`;
   if (n.kind === "mention") {
     return {
       subject: `Zmínka: ${n.task_title}`,
       html: emailLayout(
         `Zmínka na kartě: ${title}`,
-        `<p style="margin:0 0 8px;font-size:14px;">${actor} tě zmínil(a) v komentáři:</p>${quoted}${button}${replyHint}`
+        `<p style="margin:0;font-size:14px;">${actor} tě zmínil(a) v komentáři.</p>${conversation}${button}${replyHint}`
       ),
     };
   }
@@ -55,9 +110,46 @@ function compose(n: QueueRow): { subject: string; html: string } {
     subject: `Nový komentář: ${n.task_title}`,
     html: emailLayout(
       `Komentář na kartě: ${title}`,
-      `<p style="margin:0 0 8px;font-size:14px;">${actor} napsal(a) komentář:</p>${quoted}${button}${replyHint}`
+      `<p style="margin:0;font-size:14px;">${actor} napsal(a) komentář.</p>${conversation}${button}${replyHint}`
     ),
   };
+}
+
+/** Komentáře karet z fronty, per karta od nejnovějšího (max MAX_THREAD). */
+async function loadThreads(
+  supabase: ReturnType<typeof createAdminClient>,
+  taskIds: string[]
+): Promise<Map<string, ThreadComment[]>> {
+  const threads = new Map<string, ThreadComment[]>();
+  if (taskIds.length === 0) return threads;
+  const { data: comments } = await supabase
+    .from("task_comments")
+    .select("task_id, author_id, body, created_at")
+    .in("task_id", taskIds)
+    .order("created_at", { ascending: false });
+  if (!comments?.length) return threads;
+  const authorIds = [...new Set(comments.map((c) => c.author_id as string))];
+  const { data: authors } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", authorIds);
+  const nameById = new Map(
+    (authors ?? []).map((a) => [
+      a.id as string,
+      ((a.full_name as string) || (a.email as string)) ?? "",
+    ])
+  );
+  for (const c of comments) {
+    const list = threads.get(c.task_id as string) ?? [];
+    if (list.length >= MAX_THREAD) continue;
+    list.push({
+      author: nameById.get(c.author_id as string) ?? "",
+      body: c.body as string,
+      created_at: c.created_at as string,
+    });
+    threads.set(c.task_id as string, list);
+  }
+  return threads;
 }
 
 export async function drainNotifications(): Promise<{
@@ -75,13 +167,21 @@ export async function drainNotifications(): Promise<{
   if (queue.length === 0) return { processed: 0, sent: 0 };
 
   const userIds = [...new Set(queue.map((n) => n.user_id))];
-  const [profilesRes, prefsRes, membersRes] = await Promise.all([
+  const threadTaskIds = [
+    ...new Set(
+      queue
+        .filter((n) => n.kind !== "assigned" && n.task_id)
+        .map((n) => n.task_id as string)
+    ),
+  ];
+  const [profilesRes, prefsRes, membersRes, threads] = await Promise.all([
     supabase.from("profiles").select("id, email").in("id", userIds),
     supabase.from("notification_prefs").select("*").in("user_id", userIds),
     supabase
       .from("workspace_members")
       .select("user_id, workspace_id, notify_email, notify_enabled")
       .in("user_id", userIds),
+    loadThreads(supabase, threadTaskIds),
   ]);
   const emailById = new Map(
     (profilesRes.data ?? []).map((p) => [p.id as string, p.email as string])
@@ -128,7 +228,10 @@ export async function drainNotifications(): Promise<{
     if (notifyOff.has(`${n.user_id}:${n.workspace_id}`)) continue; // vypnul admin
 
     try {
-      const { subject, html } = compose(n);
+      const { subject, html } = compose(
+        n,
+        n.task_id ? (threads.get(n.task_id) ?? []) : []
+      );
       const replyTo = n.task_id ? replyAddress(n.task_id, n.user_id) : null;
       await sendEmail(email, subject, html, replyTo ?? undefined);
       sent += 1;
