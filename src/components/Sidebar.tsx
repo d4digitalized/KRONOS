@@ -171,7 +171,7 @@ export default function Sidebar({
           </span>
         )}
         <Link
-          href="/settings"
+          href={`/w/${wsId}/settings`}
           title="Nastavení"
           aria-label="Nastavení"
           className="rounded-md p-1.5 text-ink-soft hover:bg-black/5"

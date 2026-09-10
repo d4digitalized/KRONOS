@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createUserClient } from "./auth";
 import { syncTaskCalendarCore } from "@/lib/calendarSync";
+import { posBetween } from "@/lib/position";
 
 /** Datum+čas v Europe/Prague → UTC Date (server běží v UTC; respektuje
     letní/zimní čas daného dne). */
@@ -358,6 +359,186 @@ export function registerTools(server: McpServer): void {
         .is("completed_at", null)
         .order("due_date", { nullsFirst: false });
       return error ? fail(error.message) : ok(data);
+    }
+  );
+
+  server.registerTool(
+    "list_tasks",
+    {
+      title: "Úkoly projektu",
+      description:
+        "Úkoly na nástěnce projektu: sloupec, stav (open / hold / waiting / done), termín, priorita, řešitelé. Vrací i sloupce nástěnky (název + column_id) pro move_task. Standardně jen nedokončené; include_done přidá i hotové.",
+      inputSchema: {
+        project_id: z.string(),
+        include_done: z
+          .boolean()
+          .optional()
+          .describe("vrátit i dokončené úkoly (default false)"),
+      },
+    },
+    async ({ project_id, include_done }, extra) => {
+      const { client } = clientFor(extra);
+      let q = client
+        .from("tasks")
+        .select(
+          "id, title, due_date, priority, completed_at, on_hold, column_id, position, board_columns(name), task_followups(task_id), task_assignees(user_id, profiles(full_name))"
+        )
+        .eq("project_id", project_id)
+        .is("parent_id", null)
+        .order("position");
+      if (!include_done) q = q.is("completed_at", null);
+      const [colsRes, tasksRes] = await Promise.all([
+        client
+          .from("board_columns")
+          .select("id, name")
+          .eq("project_id", project_id)
+          .order("position"),
+        q,
+      ]);
+      if (colsRes.error) return fail(colsRes.error.message);
+      if (tasksRes.error) return fail(tasksRes.error.message);
+      type Row = {
+        id: string;
+        title: string;
+        due_date: string | null;
+        priority: number | null;
+        completed_at: string | null;
+        on_hold: boolean | null;
+        column_id: string | null;
+        board_columns: { name: string } | { name: string }[] | null;
+        task_followups: unknown;
+        task_assignees: { user_id: string; profiles: { full_name: string } | null }[];
+      };
+      const rows = (tasksRes.data ?? []) as unknown as Row[];
+      const tasks = rows.map((t) => {
+        const col = Array.isArray(t.board_columns) ? t.board_columns[0] : t.board_columns;
+        const waiting = Array.isArray(t.task_followups)
+          ? t.task_followups.length > 0
+          : !!t.task_followups;
+        return {
+          id: t.id,
+          title: t.title,
+          status: t.completed_at
+            ? "done"
+            : t.on_hold
+              ? "hold"
+              : waiting
+                ? "waiting"
+                : "open",
+          column: col?.name ?? null,
+          column_id: t.column_id,
+          due_date: t.due_date,
+          priority: t.priority,
+          completed_at: t.completed_at,
+          assignees: (t.task_assignees ?? []).map((a) => ({
+            user_id: a.user_id,
+            name: a.profiles?.full_name ?? "",
+          })),
+        };
+      });
+      return ok({ columns: colsRes.data, tasks });
+    }
+  );
+
+  server.registerTool(
+    "complete_task",
+    {
+      title: "Dokončit úkol",
+      description:
+        "Označí úkol jako hotový (completed=true, výchozí) nebo ho znovu otevře (completed=false). U opakovaného úkolu se po dokončení automaticky založí další výskyt.",
+      inputSchema: {
+        task_id: z.string(),
+        completed: z
+          .boolean()
+          .optional()
+          .describe("true = dokončit (výchozí), false = znovu otevřít"),
+      },
+    },
+    async ({ task_id, completed }, extra) => {
+      const { client } = clientFor(extra);
+      const done = completed ?? true;
+      const { data, error } = await client
+        .from("tasks")
+        .update(
+          done
+            ? { completed_at: new Date().toISOString(), on_hold: false }
+            : { completed_at: null }
+        )
+        .eq("id", task_id)
+        .select("id, title, completed_at")
+        .single();
+      if (error || !data)
+        return fail("Úkol nenalezen nebo k němu nemáš přístup.");
+      return ok({ task_id: data.id, title: data.title, completed: !!data.completed_at });
+    }
+  );
+
+  server.registerTool(
+    "move_task",
+    {
+      title: "Přesunout úkol do sloupce",
+      description:
+        "Přesune úkol na konec sloupce nástěnky jeho projektu — podle názvu sloupce (bez ohledu na velikost písmen) nebo column_id z list_tasks. Uspaný, čekající i hotový úkol tím znovu otevře. Hodnota \"hold\" úkol uspí (sloupec Hold). Pro dokončení použij complete_task.",
+      inputSchema: {
+        task_id: z.string(),
+        column: z
+          .string()
+          .describe("název sloupce, column_id, nebo \"hold\""),
+      },
+    },
+    async ({ task_id, column }, extra) => {
+      const { client } = clientFor(extra);
+      const { data: task, error: te } = await client
+        .from("tasks")
+        .select("id, title, project_id")
+        .eq("id", task_id)
+        .single();
+      if (te || !task) return fail("Úkol nenalezen nebo k němu nemáš přístup.");
+
+      const wanted = column.trim().toLowerCase();
+      if (wanted === "hold") {
+        const { error } = await client
+          .from("tasks")
+          .update({ on_hold: true })
+          .eq("id", task_id);
+        return error
+          ? fail("Uspání se nezdařilo: " + error.message)
+          : ok({ task_id, title: task.title, moved_to: "hold" });
+      }
+
+      const { data: cols, error: ce } = await client
+        .from("board_columns")
+        .select("id, name")
+        .eq("project_id", task.project_id)
+        .order("position");
+      if (ce) return fail(ce.message);
+      const target = (cols ?? []).find(
+        (c) => c.id === column || (c.name as string).trim().toLowerCase() === wanted
+      );
+      if (!target)
+        return fail(
+          `Sloupec „${column}“ na nástěnce není. K dispozici: ${(cols ?? [])
+            .map((c) => c.name)
+            .join(", ")}`
+        );
+
+      // na konec sloupce; čekání (follow-up) zrušit, uspání i dokončení vrátit
+      const { data: last } = await client
+        .from("tasks")
+        .select("position")
+        .eq("column_id", target.id)
+        .is("completed_at", null)
+        .order("position", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const position = posBetween(last?.position ?? undefined, undefined);
+      await client.from("task_followups").delete().eq("task_id", task_id);
+      const { error } = await client
+        .from("tasks")
+        .update({ column_id: target.id, position, on_hold: false, completed_at: null })
+        .eq("id", task_id);
+      if (error) return fail("Přesun se nezdařil: " + error.message);
+      return ok({ task_id, title: task.title, moved_to: target.name });
     }
   );
 

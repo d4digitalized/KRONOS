@@ -90,8 +90,8 @@ export default function ApiTokens() {
         <p className="text-xs text-ink-soft/70">
           Vytvoř token a přidej ho do Clauda jako custom connector s adresou{" "}
           <code className="rounded bg-ink-soft/10 px-1 py-0.5">{mcpUrl}</code>. Claude
-          pak umí pod tvým jménem zakládat úkoly, přiřazovat řešitele a komentovat —
-          jen v projektech, které sám vidíš.
+          pak umí pod tvým jménem procházet nástěnky, zakládat, dokončovat a přesouvat
+          úkoly, přiřazovat řešitele a komentovat — jen v projektech, které sám vidíš.
         </p>
 
         {fresh && (

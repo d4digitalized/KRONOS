@@ -238,7 +238,7 @@ export default function MobileNav({
                 {userName}
               </span>
               <Link
-                href="/settings"
+                href={`/w/${wsId}/settings`}
                 aria-label="Nastavení"
                 className="rounded-md p-2 text-ink-soft hover:bg-black/5"
               >
