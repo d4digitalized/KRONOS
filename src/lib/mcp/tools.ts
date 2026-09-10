@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createUserClient } from "./auth";
 import { syncTaskCalendarCore } from "@/lib/calendarSync";
 import { posBetween } from "@/lib/position";
+import { entrySeconds } from "@/lib/format";
 
 /** Datum+čas v Europe/Prague → UTC Date (server běží v UTC; respektuje
     letní/zimní čas daného dne). */
@@ -20,6 +21,33 @@ function pragueDate(date: string, time: string): Date {
   const offMin = sign * (Number(m?.[2] ?? 1) * 60 + Number(m?.[3] ?? 0));
   return new Date(new Date(`${date}T${time}:00Z`).getTime() - offMin * 60_000);
 }
+
+/** YYYY-MM-DD následujícího dne. */
+function nextDay(date: string): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{2}:\d{2}$/;
+
+/** ISO čas → „YYYY-MM-DD HH:MM" v Europe/Prague (pro výstupy). */
+function pragueStamp(iso: string | null): string | null {
+  if (!iso) return null;
+  const parts = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Prague",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
+  return parts.replace("T", " ");
+}
+
+const minutes = (started: string, stopped: string | null) =>
+  Math.round(entrySeconds(started, stopped) / 60);
 
 // Nástroje MCP serveru Kronos. Každý běží pod JWT přihlášeného uživatele
 // (createUserClient), takže veškerá autorizace, izolace workspace i role
@@ -539,6 +567,391 @@ export function registerTools(server: McpServer): void {
         .eq("id", task_id);
       if (error) return fail("Přesun se nezdařil: " + error.message);
       return ok({ task_id, title: task.title, moved_to: target.name });
+    }
+  );
+
+  server.registerTool(
+    "list_comments",
+    {
+      title: "Komentáře úkolu",
+      description:
+        "Komentáře k úkolu od nejstaršího po nejnovější: autor, čas (Europe/Prague), text.",
+      inputSchema: { task_id: z.string() },
+    },
+    async ({ task_id }, extra) => {
+      const { client } = clientFor(extra);
+      const { data, error } = await client
+        .from("task_comments")
+        .select("id, body, created_at, author_id, profiles(full_name, email)")
+        .eq("task_id", task_id)
+        .order("created_at");
+      if (error) return fail(error.message);
+      type Row = {
+        id: string;
+        body: string;
+        created_at: string;
+        author_id: string;
+        profiles: { full_name: string; email: string } | null;
+      };
+      const rows = (data ?? []) as unknown as Row[];
+      return ok(
+        rows.map((c) => ({
+          id: c.id,
+          author_id: c.author_id,
+          author: c.profiles?.full_name || c.profiles?.email || "",
+          at: pragueStamp(c.created_at),
+          body: c.body,
+        }))
+      );
+    }
+  );
+
+  server.registerTool(
+    "set_due_date",
+    {
+      title: "Nastavit termín úkolu",
+      description:
+        "Nastaví termín úkolu (due_date). Prázdný řetězec termín smaže. Plánované okno (kdy se na tom dělá) řeší plan_task.",
+      inputSchema: {
+        task_id: z.string(),
+        due_date: z
+          .string()
+          .describe("YYYY-MM-DD, nebo prázdný řetězec pro smazání termínu"),
+      },
+    },
+    async ({ task_id, due_date }, extra) => {
+      const { client } = clientFor(extra);
+      const value = due_date.trim();
+      if (value && !DATE_RE.test(value)) return fail("Formát termínu: YYYY-MM-DD.");
+      const { data, error } = await client
+        .from("tasks")
+        .update({ due_date: value || null })
+        .eq("id", task_id)
+        .select("id, title, due_date")
+        .single();
+      if (error || !data)
+        return fail("Úkol nenalezen nebo k němu nemáš přístup.");
+      return ok({ task_id: data.id, title: data.title, due_date: data.due_date });
+    }
+  );
+
+  // ---------------------------------------------------------------- čas
+
+  server.registerTool(
+    "current_timer",
+    {
+      title: "Běžící timer",
+      description:
+        "Vrátí právě běžící timer přihlášeného uživatele (úkol, projekt, popis, od kdy, uplynulé minuty), nebo running=false.",
+      inputSchema: {},
+    },
+    async (_args, extra) => {
+      const { client, userId } = clientFor(extra);
+      const { data, error } = await client
+        .from("time_entries")
+        .select("id, started_at, description, workspace_id, project_id, task_id, projects(name), tasks(title)")
+        .eq("user_id", userId)
+        .is("stopped_at", null)
+        .maybeSingle();
+      if (error) return fail(error.message);
+      if (!data) return ok({ running: false });
+      type Row = {
+        id: string;
+        started_at: string;
+        description: string;
+        workspace_id: string;
+        project_id: string | null;
+        task_id: string | null;
+        projects: { name: string } | null;
+        tasks: { title: string } | null;
+      };
+      const e = data as unknown as Row;
+      return ok({
+        running: true,
+        entry_id: e.id,
+        workspace_id: e.workspace_id,
+        project_id: e.project_id,
+        project: e.projects?.name ?? null,
+        task_id: e.task_id,
+        task: e.tasks?.title ?? null,
+        description: e.description,
+        started_at: pragueStamp(e.started_at),
+        minutes: minutes(e.started_at, null),
+      });
+    }
+  );
+
+  server.registerTool(
+    "start_timer",
+    {
+      title: "Spustit timer",
+      description:
+        "Spustí měření času přihlášenému uživateli. Zadej task_id (projekt i workspace se dohledají), nebo project_id, nebo jen workspace_id pro volný timer. Případný běžící timer se nejdřív zastaví a uloží.",
+      inputSchema: {
+        task_id: z.string().optional(),
+        project_id: z.string().optional(),
+        workspace_id: z.string().optional(),
+        description: z.string().optional().describe("popis činnosti"),
+      },
+    },
+    async ({ task_id, project_id, workspace_id, description }, extra) => {
+      const { client, userId } = clientFor(extra);
+      let wsId = workspace_id ?? null;
+      let projId = project_id ?? null;
+      let taskTitle: string | null = null;
+      if (task_id) {
+        const { data: t } = await client
+          .from("tasks")
+          .select("title, workspace_id, project_id")
+          .eq("id", task_id)
+          .maybeSingle();
+        if (!t) return fail("Úkol nenalezen nebo k němu nemáš přístup.");
+        wsId = t.workspace_id;
+        projId = projId ?? t.project_id;
+        taskTitle = t.title;
+      } else if (projId) {
+        const { data: p } = await client
+          .from("projects")
+          .select("workspace_id")
+          .eq("id", projId)
+          .maybeSingle();
+        if (!p) return fail("Projekt nenalezen nebo k němu nemáš přístup.");
+        wsId = p.workspace_id;
+      }
+      if (!wsId) return fail("Zadej task_id, project_id nebo workspace_id.");
+
+      // zastavit běžící timer
+      const stoppedAt = new Date().toISOString();
+      const { data: running } = await client
+        .from("time_entries")
+        .select("id, started_at")
+        .eq("user_id", userId)
+        .is("stopped_at", null)
+        .maybeSingle();
+      if (running) {
+        await client
+          .from("time_entries")
+          .update({ stopped_at: stoppedAt })
+          .eq("id", running.id);
+      }
+
+      const { data, error } = await client
+        .from("time_entries")
+        .insert({
+          workspace_id: wsId,
+          project_id: projId,
+          task_id: task_id ?? null,
+          description: description ?? "",
+          user_id: userId,
+        })
+        .select("id, started_at")
+        .single();
+      if (error || !data) return fail("Timer se nepodařilo spustit: " + (error?.message ?? ""));
+      return ok({
+        started: true,
+        entry_id: data.id,
+        task: taskTitle,
+        started_at: pragueStamp(data.started_at),
+        previous_stopped: running
+          ? { entry_id: running.id, minutes: minutes(running.started_at, stoppedAt) }
+          : null,
+      });
+    }
+  );
+
+  server.registerTool(
+    "stop_timer",
+    {
+      title: "Zastavit timer",
+      description:
+        "Zastaví běžící timer přihlášeného uživatele a uloží záznam. Volitelně doplní popis.",
+      inputSchema: {
+        description: z.string().optional().describe("popis činnosti (přepíše stávající)"),
+      },
+    },
+    async ({ description }, extra) => {
+      const { client, userId } = clientFor(extra);
+      const { data: running } = await client
+        .from("time_entries")
+        .select("id, started_at")
+        .eq("user_id", userId)
+        .is("stopped_at", null)
+        .maybeSingle();
+      if (!running) return ok({ stopped: false, note: "Žádný timer neběží." });
+      const stoppedAt = new Date().toISOString();
+      const { error } = await client
+        .from("time_entries")
+        .update({
+          stopped_at: stoppedAt,
+          ...(description !== undefined ? { description } : {}),
+        })
+        .eq("id", running.id);
+      if (error) return fail("Timer se nepodařilo zastavit: " + error.message);
+      return ok({
+        stopped: true,
+        entry_id: running.id,
+        minutes: minutes(running.started_at, stoppedAt),
+      });
+    }
+  );
+
+  server.registerTool(
+    "add_time_entry",
+    {
+      title: "Zapsat čas ručně",
+      description:
+        "Uloží hotový záznam času přihlášeného uživatele: den + od–do (Europe/Prague). Zadej task_id, nebo project_id, nebo workspace_id.",
+      inputSchema: {
+        date: z.string().describe("den, YYYY-MM-DD"),
+        from: z.string().describe("začátek HH:MM"),
+        to: z.string().describe("konec HH:MM"),
+        task_id: z.string().optional(),
+        project_id: z.string().optional(),
+        workspace_id: z.string().optional(),
+        description: z.string().optional(),
+      },
+    },
+    async ({ date, from, to, task_id, project_id, workspace_id, description }, extra) => {
+      const { client, userId } = clientFor(extra);
+      if (!DATE_RE.test(date) || !TIME_RE.test(from) || !TIME_RE.test(to))
+        return fail("Formát: date YYYY-MM-DD, from/to HH:MM.");
+      if (to <= from) return fail("Konec musí být po začátku.");
+      let wsId = workspace_id ?? null;
+      let projId = project_id ?? null;
+      if (task_id) {
+        const { data: t } = await client
+          .from("tasks")
+          .select("workspace_id, project_id")
+          .eq("id", task_id)
+          .maybeSingle();
+        if (!t) return fail("Úkol nenalezen nebo k němu nemáš přístup.");
+        wsId = t.workspace_id;
+        projId = projId ?? t.project_id;
+      } else if (projId) {
+        const { data: p } = await client
+          .from("projects")
+          .select("workspace_id")
+          .eq("id", projId)
+          .maybeSingle();
+        if (!p) return fail("Projekt nenalezen nebo k němu nemáš přístup.");
+        wsId = p.workspace_id;
+      }
+      if (!wsId) return fail("Zadej task_id, project_id nebo workspace_id.");
+      const started = pragueDate(date, from);
+      const stopped = pragueDate(date, to);
+      const { data, error } = await client
+        .from("time_entries")
+        .insert({
+          workspace_id: wsId,
+          project_id: projId,
+          task_id: task_id ?? null,
+          description: description ?? "",
+          user_id: userId,
+          started_at: started.toISOString(),
+          stopped_at: stopped.toISOString(),
+        })
+        .select("id")
+        .single();
+      if (error || !data) return fail("Záznam se nepodařilo uložit: " + (error?.message ?? ""));
+      return ok({ entry_id: data.id, minutes: minutes(started.toISOString(), stopped.toISOString()) });
+    }
+  );
+
+  server.registerTool(
+    "list_time_entries",
+    {
+      title: "Výkazy času",
+      description:
+        "Záznamy času za období (dny včetně, Europe/Prague) + součty po lidech a projektech. Vidíš své záznamy; admin workspace vidí všechny, HR ty, na které má grant. Volitelně omez na workspace, uživatele nebo projekt. summary_only vrátí jen součty (pro dlouhá období).",
+      inputSchema: {
+        from: z.string().describe("od, YYYY-MM-DD (včetně)"),
+        to: z.string().describe("do, YYYY-MM-DD (včetně)"),
+        workspace_id: z.string().optional(),
+        user_id: z.string().optional().describe("jen jeden člověk (user_id z list_workspace_members)"),
+        project_id: z.string().optional(),
+        summary_only: z.boolean().optional().describe("jen součty, bez jednotlivých záznamů"),
+      },
+    },
+    async ({ from, to, workspace_id, user_id, project_id, summary_only }, extra) => {
+      const { client } = clientFor(extra);
+      if (!DATE_RE.test(from) || !DATE_RE.test(to)) return fail("Formát: from/to YYYY-MM-DD.");
+      if (to < from) return fail("„to“ musí být stejné nebo pozdější než „from“.");
+      let q = client
+        .from("time_entries")
+        .select(
+          "id, user_id, workspace_id, project_id, task_id, description, started_at, stopped_at, profiles(full_name, email), projects(name), tasks(title)"
+        )
+        .gte("started_at", pragueDate(from, "00:00").toISOString())
+        .lt("started_at", pragueDate(nextDay(to), "00:00").toISOString())
+        .order("started_at")
+        .limit(1000);
+      if (workspace_id) q = q.eq("workspace_id", workspace_id);
+      if (user_id) q = q.eq("user_id", user_id);
+      if (project_id) q = q.eq("project_id", project_id);
+      const { data, error } = await q;
+      if (error) return fail(error.message);
+      type Row = {
+        id: string;
+        user_id: string;
+        workspace_id: string;
+        project_id: string | null;
+        task_id: string | null;
+        description: string;
+        started_at: string;
+        stopped_at: string | null;
+        profiles: { full_name: string; email: string } | null;
+        projects: { name: string } | null;
+        tasks: { title: string } | null;
+      };
+      const rows = (data ?? []) as unknown as Row[];
+      const byUser = new Map<string, { user_id: string; name: string; minutes: number }>();
+      const byProject = new Map<string, { project_id: string | null; name: string; minutes: number }>();
+      const byUserProject = new Map<string, { user: string; project: string; minutes: number }>();
+      let total = 0;
+      for (const e of rows) {
+        const min = minutes(e.started_at, e.stopped_at);
+        total += min;
+        const name = e.profiles?.full_name || e.profiles?.email || e.user_id;
+        const proj = e.projects?.name ?? "(bez projektu)";
+        const u = byUser.get(e.user_id) ?? { user_id: e.user_id, name, minutes: 0 };
+        u.minutes += min;
+        byUser.set(e.user_id, u);
+        const pk = e.project_id ?? "";
+        const p = byProject.get(pk) ?? { project_id: e.project_id, name: proj, minutes: 0 };
+        p.minutes += min;
+        byProject.set(pk, p);
+        const upk = `${e.user_id}|${pk}`;
+        const up = byUserProject.get(upk) ?? { user: name, project: proj, minutes: 0 };
+        up.minutes += min;
+        byUserProject.set(upk, up);
+      }
+      const desc = (a: { minutes: number }, b: { minutes: number }) => b.minutes - a.minutes;
+      return ok({
+        from,
+        to,
+        total_minutes: total,
+        entries_count: rows.length,
+        truncated: rows.length >= 1000 ? "vráceno prvních 1000 záznamů, zúž období" : undefined,
+        by_user: [...byUser.values()].sort(desc),
+        by_project: [...byProject.values()].sort(desc),
+        by_user_and_project: [...byUserProject.values()].sort(desc),
+        entries: summary_only
+          ? undefined
+          : rows.map((e) => ({
+              id: e.id,
+              user: e.profiles?.full_name || e.profiles?.email || e.user_id,
+              user_id: e.user_id,
+              project: e.projects?.name ?? null,
+              project_id: e.project_id,
+              task: e.tasks?.title ?? null,
+              task_id: e.task_id,
+              description: e.description,
+              started_at: pragueStamp(e.started_at),
+              stopped_at: pragueStamp(e.stopped_at),
+              running: !e.stopped_at,
+              minutes: minutes(e.started_at, e.stopped_at),
+            })),
+      });
     }
   );
 
