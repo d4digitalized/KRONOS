@@ -133,6 +133,45 @@ export function registerTools(server: McpServer): void {
   );
 
   server.registerTool(
+    "create_project",
+    {
+      title: "Založit projekt",
+      description:
+        "Založí aktivní projekt (nástěnku) ve workspace. Smí jen admin workspace — stejně jako ve Správě projektů. Projekt dostane automaticky sloupec Backlog; vrácené id lze rovnou použít v create_task.",
+      inputSchema: {
+        workspace_id: z.string(),
+        name: z.string().describe("název projektu"),
+      },
+    },
+    async ({ workspace_id, name }, extra) => {
+      const { client } = clientFor(extra);
+      const trimmed = name.trim();
+      if (!trimmed) return fail("Název projektu nesmí být prázdný.");
+      // na konec seznamu (Správa projektů řadí podle position)
+      const { data: last } = await client
+        .from("projects")
+        .select("position")
+        .eq("workspace_id", workspace_id)
+        .order("position", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const position = Math.max(0, Number(last?.position ?? 0)) + 1;
+      const { data, error } = await client
+        .from("projects")
+        .insert({ workspace_id, name: trimmed, position })
+        .select("id, name, workspace_id")
+        .single();
+      if (error || !data)
+        return fail(
+          "Projekt se nepodařilo založit — projekt smí zakládat jen admin workspace. (" +
+            (error?.message ?? "neznámá chyba") +
+            ")"
+        );
+      return ok(data);
+    }
+  );
+
+  server.registerTool(
     "list_project_members",
     {
       title: "Členové projektu",
