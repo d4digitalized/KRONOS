@@ -11,44 +11,27 @@ export default async function BoardPage({
   searchParams: Promise<{ task?: string }>;
 }) {
   const { wsId, projectId } = await params;
-  await redirectTimeOnlyMember(wsId);
-  const { task: initialTaskId } = await searchParams;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const [{ data: project }, { data: profile }, { data: membership }] =
+  // kontext firmy i projekt najednou — projekt hlídá RLS, není na co čekat
+  const [{ user, isAdmin }, { data: project }, { task: initialTaskId }] =
     await Promise.all([
+      redirectTimeOnlyMember(wsId),
       supabase
         .from("projects")
         .select("id, name, workspace_id")
         .eq("id", projectId)
         .eq("workspace_id", wsId)
         .maybeSingle(),
-      supabase
-        .from("profiles")
-        .select("is_super_admin")
-        .eq("id", user!.id)
-        .single(),
-      supabase
-        .from("workspace_members")
-        .select("role")
-        .eq("workspace_id", wsId)
-        .eq("user_id", user!.id)
-        .maybeSingle(),
+      searchParams,
     ]);
   if (!project) notFound();
-
-  const isAdmin =
-    (profile?.is_super_admin ?? false) || membership?.role === "admin";
 
   return (
     <BoardView
       wsId={wsId}
       projectId={projectId}
       projectName={project.name}
-      userId={user!.id}
+      userId={user.id}
       isAdmin={isAdmin}
       initialTaskId={initialTaskId}
     />

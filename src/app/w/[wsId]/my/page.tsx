@@ -1,5 +1,3 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { redirectTimeOnlyMember } from "@/lib/auth";
 import MyTasksView from "@/components/MyTasksView";
 
@@ -9,21 +7,7 @@ export default async function MyTasksPage({
   params: Promise<{ wsId: string }>;
 }) {
   const { wsId } = await params;
-  await redirectTimeOnlyMember(wsId);
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const [{ data: profile }, { data: ws }] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("full_name, email, tag_name, avatar_initials, avatar_color")
-      .eq("id", user.id)
-      .single(),
-    supabase.from("workspaces").select("name").eq("id", wsId).single(),
-  ]);
+  const { user, profile, ws } = await redirectTimeOnlyMember(wsId);
 
   const heading = profile?.tag_name
     ? `@${profile.tag_name}`

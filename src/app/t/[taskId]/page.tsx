@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 
 // Sdílený odkaz na úkol: /t/<id> dohledá úkol (RLS hlídá přístup) a
 // přesměruje na nástěnku projektu (resp. seznam úkolů u úkolů bez
@@ -10,11 +11,9 @@ export default async function TaskLinkPage({
   params: Promise<{ taskId: string }>;
 }) {
   const { taskId } = await params;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) redirect("/login");
+  const supabase = await createClient();
 
   const { data: task } = await supabase
     .from("tasks")

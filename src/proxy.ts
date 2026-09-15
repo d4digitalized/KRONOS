@@ -39,14 +39,17 @@ export async function proxy(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims místo getUser: podpis JWT se ověří lokálně (asymetrický klíč
+  // projektu), bez round-tripu na Supabase Auth při každém požadavku.
+  // Prošlý access token se přitom pořád obnoví (getSession uvnitř) a nové
+  // cookies se propíšou přes setAll výš.
+  const { data } = await supabase.auth.getClaims();
+  const signedIn = !!data?.claims?.sub;
 
   const { pathname } = request.nextUrl;
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
-  if (!user && !isPublic) {
+  if (!signedIn && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

@@ -7,6 +7,7 @@ import { ProjectDot, projectColor } from "@/components/ProjectPicker";
 import Avatar from "@/components/Avatar";
 import type { Membership, Project, ProjectCategory } from "@/lib/types";
 import { BoardsListSkeleton } from "@/components/Skeletons";
+import { cacheGet, cacheSet } from "@/lib/viewCache";
 
 /** Nick pro řazení koleček: @tag, jinak jméno / e-mail. */
 function memberNick(m: Membership): string {
@@ -25,13 +26,25 @@ export default function BoardsList({
   isAdmin: boolean;
 }) {
   const supabase = createClient();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [members, setMembers] = useState<Membership[]>([]);
-  const [memberIds, setMemberIds] = useState<Record<string, string[]>>({});
-  const [categories, setCategories] = useState<ProjectCategory[]>([]);
+  // poslední načtený stav (stale-while-revalidate, lib/viewCache)
+  const cacheKey = `boards:${wsId}`;
+  const cached = cacheGet<{
+    projects: Project[];
+    members: Membership[];
+    memberIds: Record<string, string[]>;
+    categories: ProjectCategory[];
+  }>(cacheKey);
+  const [projects, setProjects] = useState<Project[]>(cached?.projects ?? []);
+  const [members, setMembers] = useState<Membership[]>(cached?.members ?? []);
+  const [memberIds, setMemberIds] = useState<Record<string, string[]>>(
+    cached?.memberIds ?? {}
+  );
+  const [categories, setCategories] = useState<ProjectCategory[]>(
+    cached?.categories ?? []
+  );
   const [fCat, setFCat] = useState("");
   const [q, setQ] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
 
   const load = useCallback(async () => {
     const [projRes, memRes, pmRes, catRes] = await Promise.all([
@@ -66,13 +79,22 @@ export default function BoardsList({
         row.user_id as string,
       ];
     }
-    setProjects((projRes.data as Project[]) ?? []);
-    setMembers((memRes.data as unknown as Membership[]) ?? []);
-    setMemberIds(byProject);
+    const nextProjects = (projRes.data as Project[]) ?? [];
+    const nextMembers = (memRes.data as unknown as Membership[]) ?? [];
     // kategorie ještě nemusí být v DB (migrace) — pak se filtr prostě neukáže
-    setCategories((catRes.data as ProjectCategory[]) ?? []);
+    const nextCategories = (catRes.data as ProjectCategory[]) ?? [];
+    setProjects(nextProjects);
+    setMembers(nextMembers);
+    setMemberIds(byProject);
+    setCategories(nextCategories);
     setLoading(false);
-  }, [supabase, wsId]);
+    cacheSet(cacheKey, {
+      projects: nextProjects,
+      members: nextMembers,
+      memberIds: byProject,
+      categories: nextCategories,
+    });
+  }, [supabase, wsId, cacheKey]);
 
   useEffect(() => {
     load();

@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { cacheGet, cacheSet } from "@/lib/viewCache";
 import {
   DndContext,
   DragOverlay,
@@ -58,6 +59,13 @@ const PX_PER_MIN = 56 / 60; // hodina = 56 px
 type PlannedTask = Task & {
   workspaces?: { name: string } | null;
   task_assignees?: { user_id: string }[];
+};
+
+/** Načtený týden pro stale-while-revalidate cache (lib/viewCache). */
+type DaySnapshot = {
+  planned: PlannedTask[];
+  due: PlannedTask[];
+  candidates: PlannedTask[];
 };
 
 type DragData = {
@@ -278,9 +286,13 @@ export default function MyDayView({
   const supabase = createClient();
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [day, setDay] = useState(() => isoDay(new Date()));
-  const [planned, setPlanned] = useState<PlannedTask[]>([]);
-  const [due, setDue] = useState<PlannedTask[]>([]);
-  const [candidates, setCandidates] = useState<PlannedTask[]>([]);
+  // poslední načtený týden (stale-while-revalidate): návrat na Můj den i
+  // listování týdny ukáže známá data hned, čerstvá dojedou na pozadí
+  const cacheKey = `day:${userId}:${isoDay(weekStart)}`;
+  const cached = cacheGet<DaySnapshot>(cacheKey);
+  const [planned, setPlanned] = useState<PlannedTask[]>(cached?.planned ?? []);
+  const [due, setDue] = useState<PlannedTask[]>(cached?.due ?? []);
+  const [candidates, setCandidates] = useState<PlannedTask[]>(cached?.candidates ?? []);
   const [query, setQuery] = useState("");
   const [fProject, setFProject] = useState("");
   const [newTitle, setNewTitle] = useState("");
@@ -288,7 +300,7 @@ export default function MyDayView({
   const [planFrom, setPlanFrom] = useState("09:00");
   const [planTo, setPlanTo] = useState("10:00");
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
   const [dragging, setDragging] = useState<DragData | null>(null);
   const [resizing, setResizing] = useState<{
     taskId: string;
@@ -348,33 +360,43 @@ export default function MyDayView({
     );
     const byId = new Map<string, PlannedTask>();
     for (const t of [...mine, ...created]) byId.set(t.id, t);
-    setPlanned(
-      [...byId.values()].sort((a, b) =>
-        (a.planned_start ?? "").localeCompare(b.planned_start ?? "")
-      )
+    const nextPlanned = [...byId.values()].sort((a, b) =>
+      (a.planned_start ?? "").localeCompare(b.planned_start ?? "")
     );
-    setDue(
-      ((dueRes.data ?? []) as unknown as { tasks: PlannedTask }[]).map(
-        (r) => r.tasks
-      )
-    );
-    setCandidates(
-      ((candRes.data ?? []) as unknown as { tasks: PlannedTask }[])
-        .map((r) => r.tasks)
-        .filter((t) => !t.on_hold)
-        .sort(
-          (a, b) =>
-            (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999") ||
-            (a.priority ?? 4) - (b.priority ?? 4) ||
-            a.title.localeCompare(b.title, "cs")
-        )
-    );
+    const nextDue = (
+      (dueRes.data ?? []) as unknown as { tasks: PlannedTask }[]
+    ).map((r) => r.tasks);
+    const nextCandidates = ((candRes.data ?? []) as unknown as { tasks: PlannedTask }[])
+      .map((r) => r.tasks)
+      .filter((t) => !t.on_hold)
+      .sort(
+        (a, b) =>
+          (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999") ||
+          (a.priority ?? 4) - (b.priority ?? 4) ||
+          a.title.localeCompare(b.title, "cs")
+      );
+    setPlanned(nextPlanned);
+    setDue(nextDue);
+    setCandidates(nextCandidates);
     setLoading(false);
+    cacheSet(`day:${userId}:${fromDay}`, {
+      planned: nextPlanned,
+      due: nextDue,
+      candidates: nextCandidates,
+    } satisfies DaySnapshot);
   }, [supabase, userId, weekStart, weekEnd]);
 
   useEffect(() => {
+    // listování týdny: známý týden ukázat hned z cache, pak přenačíst
+    const known = cacheGet<DaySnapshot>(cacheKey);
+    if (known) {
+      setPlanned(known.planned);
+      setDue(known.due);
+      setCandidates(known.candidates);
+      setLoading(false);
+    }
     load();
-  }, [load]);
+  }, [load, cacheKey]);
 
   const today = isoDay(new Date());
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));

@@ -32,6 +32,7 @@ import { toast } from "@/lib/toast";
 import { pingNotifyEmails } from "@/lib/notify";
 import { confirmDialog } from "@/lib/confirm";
 import { TASKS_CHANGED_EVENT } from "@/lib/tasksChanged";
+import { cacheGet, cacheSet } from "@/lib/viewCache";
 import { PRIORITIES } from "@/lib/priority";
 import type { BoardColumn, Label, Membership, Task } from "@/lib/types";
 import BoardCard from "@/components/BoardCard";
@@ -42,6 +43,26 @@ import { BoardSkeleton } from "@/components/Skeletons";
 const CardModal = dynamic(() => import("@/components/CardModal"), { ssr: false });
 
 type CardsByCol = Record<string, Task[]>;
+
+type Ghost = { id: string; name: string; avatar_initials?: string; avatar_color?: string };
+
+/** Poslední načtený stav nástěnky (stale-while-revalidate, lib/viewCache):
+    návrat na nástěnku ji ukáže okamžitě, čerstvá data dojedou na pozadí. */
+type BoardSnapshot = {
+  columns: BoardColumn[];
+  cards: CardsByCol;
+  orphans: Task[];
+  holdTasks: Task[];
+  waitingTasks: Task[];
+  doneTasks: Task[];
+  members: Membership[];
+  cardLabels: Record<string, Label[]>;
+  cardAssignees: Record<string, string[]>;
+  cardWaiting: Record<string, string>;
+  cardGhosts: Record<string, Ghost[]>;
+  subCounts: Record<string, { done: number; total: number }>;
+  wsLabels: Label[];
+};
 
 const COL_PREFIX = "col:";
 
@@ -81,15 +102,18 @@ export default function BoardView({
   initialTaskId?: string;
 }) {
   const supabase = createClient();
-  const [columns, setColumns] = useState<BoardColumn[]>([]);
-  const [cards, setCards] = useState<CardsByCol>({});
-  const [orphans, setOrphans] = useState<Task[]>([]);
+  // viditelnost karet závisí na uživateli (Task force filtr) → klíč i s userId
+  const cacheKey = `board:${projectId}:${userId}`;
+  const cached = cacheGet<BoardSnapshot>(cacheKey);
+  const [columns, setColumns] = useState<BoardColumn[]>(cached?.columns ?? []);
+  const [cards, setCards] = useState<CardsByCol>(cached?.cards ?? {});
+  const [orphans, setOrphans] = useState<Task[]>(cached?.orphans ?? []);
   // automatické sloupce: uspané karty, karty s follow-upem a hotové karty
-  const [holdTasks, setHoldTasks] = useState<Task[]>([]);
-  const [waitingTasks, setWaitingTasks] = useState<Task[]>([]);
-  const [doneTasks, setDoneTasks] = useState<Task[]>([]);
-  const [members, setMembers] = useState<Membership[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [holdTasks, setHoldTasks] = useState<Task[]>(cached?.holdTasks ?? []);
+  const [waitingTasks, setWaitingTasks] = useState<Task[]>(cached?.waitingTasks ?? []);
+  const [doneTasks, setDoneTasks] = useState<Task[]>(cached?.doneTasks ?? []);
+  const [members, setMembers] = useState<Membership[]>(cached?.members ?? []);
+  const [loading, setLoading] = useState(!cached);
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [activeCard, setActiveCard] = useState<Task | null>(null);
 
@@ -114,14 +138,22 @@ export default function BoardView({
   const [newCardTitle, setNewCardTitle] = useState("");
   const [editingCol, setEditingCol] = useState<string | null>(null);
   const [editColName, setEditColName] = useState("");
-  const [cardLabels, setCardLabels] = useState<Record<string, Label[]>>({});
-  const [cardAssignees, setCardAssignees] = useState<Record<string, string[]>>({});
-  const [cardWaiting, setCardWaiting] = useState<Record<string, string>>({});
-  const [cardGhosts, setCardGhosts] = useState<
-    Record<string, { id: string; name: string; avatar_initials?: string; avatar_color?: string }[]>
-  >({});
-  const [subCounts, setSubCounts] = useState<Record<string, { done: number; total: number }>>({});
-  const [wsLabels, setWsLabels] = useState<Label[]>([]);
+  const [cardLabels, setCardLabels] = useState<Record<string, Label[]>>(
+    cached?.cardLabels ?? {}
+  );
+  const [cardAssignees, setCardAssignees] = useState<Record<string, string[]>>(
+    cached?.cardAssignees ?? {}
+  );
+  const [cardWaiting, setCardWaiting] = useState<Record<string, string>>(
+    cached?.cardWaiting ?? {}
+  );
+  const [cardGhosts, setCardGhosts] = useState<Record<string, Ghost[]>>(
+    cached?.cardGhosts ?? {}
+  );
+  const [subCounts, setSubCounts] = useState<Record<string, { done: number; total: number }>>(
+    cached?.subCounts ?? {}
+  );
+  const [wsLabels, setWsLabels] = useState<Label[]>(cached?.wsLabels ?? []);
   // filtry
   const [fText, setFText] = useState("");
   const [fPriority, setFPriority] = useState(0);
@@ -295,7 +327,22 @@ export default function BoardView({
     setOrphans(lost);
     setMembers(mems);
     setLoading(false);
-  }, [supabase, projectId, wsId, userId, isAdmin]);
+    cacheSet(cacheKey, {
+      columns: cols,
+      cards: byCol,
+      orphans: lost,
+      holdTasks: hold,
+      waitingTasks: waiting,
+      doneTasks: done,
+      members: mems,
+      cardLabels: byTask,
+      cardAssignees: assigneesByTask,
+      cardWaiting: waitingByTask,
+      cardGhosts: ghostsByTask,
+      subCounts: counts,
+      wsLabels: (labelRes.data as Label[]) ?? [],
+    } satisfies BoardSnapshot);
+  }, [supabase, projectId, wsId, userId, isAdmin, cacheKey]);
 
   useEffect(() => {
     load();

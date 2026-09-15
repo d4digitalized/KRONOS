@@ -1,5 +1,5 @@
-import { requireWsAdmin } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { getWsContext } from "@/lib/session";
 import MembersView from "@/components/MembersView";
 
 export default async function MembersPage({
@@ -8,20 +8,15 @@ export default async function MembersPage({
   params: Promise<{ wsId: string }>;
 }) {
   const { wsId } = await params;
-  const user = await requireWsAdmin(wsId);
-
-  const supabase = await createClient();
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_super_admin")
-    .eq("id", user.id)
-    .single();
+  const ctx = await getWsContext(wsId);
+  if (!ctx) redirect("/login");
+  if (!ctx.isAdmin) redirect(`/w/${wsId}`);
 
   return (
     <MembersView
       wsId={wsId}
-      currentUserId={user.id}
-      isSuperAdmin={profile?.is_super_admin ?? false}
+      currentUserId={ctx.user.id}
+      isSuperAdmin={ctx.isSuperAdmin}
     />
   );
 }

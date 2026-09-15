@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { redirectTimeOnlyMember } from "@/lib/auth";
 import TasksView from "@/components/TasksView";
 
@@ -11,33 +10,11 @@ export default async function TasksPage({
   searchParams: Promise<{ task?: string }>;
 }) {
   const { wsId } = await params;
-  await redirectTimeOnlyMember(wsId);
-  const { task: initialTaskId } = await searchParams;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const [{ data: profile }, { data: membership }, { count: grantCount }] =
-    await Promise.all([
-      supabase.from("profiles").select("is_super_admin").eq("id", user.id).single(),
-      supabase
-        .from("workspace_members")
-        .select("role")
-        .eq("workspace_id", wsId)
-        .eq("user_id", user.id)
-        .maybeSingle(),
-      supabase
-        .from("assign_grants")
-        .select("target_id", { count: "exact", head: true })
-        .eq("workspace_id", wsId)
-        .eq("user_id", user.id),
-    ]);
-  const isAdmin = (profile?.is_super_admin ?? false) || membership?.role === "admin";
+  const [{ user, isAdmin, canTaskforce }, { task: initialTaskId }] =
+    await Promise.all([redirectTimeOnlyMember(wsId), searchParams]);
 
   // Task force vidí jen ten, kdo může zadávat i jiným (admin / grant)
-  if (!isAdmin && (grantCount ?? 0) === 0) redirect(`/w/${wsId}/my`);
+  if (!canTaskforce) redirect(`/w/${wsId}/my`);
 
   return (
     <TasksView

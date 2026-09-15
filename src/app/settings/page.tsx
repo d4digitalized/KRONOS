@@ -1,15 +1,14 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 
 // Nastavení žije uvnitř firmy (/w/<id>/settings), aby mělo postranní panel
 // a mobilní navigaci jako zbytek aplikace. Stará adresa (odkazy v e-mailech)
 // přesměruje do první firmy uživatele.
 export default async function SettingsRedirect() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) redirect("/login");
+  const supabase = await createClient();
 
   const { data: memberships } = await supabase
     .from("workspace_members")

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import NotificationSettings from "@/components/NotificationSettings";
 import ApiTokens from "@/components/ApiTokens";
 
@@ -11,10 +11,7 @@ export const metadata: Metadata = {
 // Osobní nastavení (notifikace, MCP tokeny) — platí napříč firmami, ale
 // stránka žije uvnitř firmy kvůli postrannímu panelu a mobilní navigaci.
 export default async function SettingsPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) redirect("/login");
 
   return (

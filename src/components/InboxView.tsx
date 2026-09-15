@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { confirmDialog } from "@/lib/confirm";
 import { pingNotifyEmails } from "@/lib/notify";
 import { notifyTasksChanged, TASKS_CHANGED_EVENT } from "@/lib/tasksChanged";
+import { cacheGet, cacheSet } from "@/lib/viewCache";
 import ProjectPicker from "@/components/ProjectPicker";
 import PersonPicker, { HOURGLASS_ICON } from "@/components/PersonPicker";
 import TaskRow, { TaskGroup } from "@/components/TaskRow";
@@ -41,11 +42,19 @@ export default function InboxView({
   canDelegate: boolean;
 }) {
   const supabase = createClient();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [members, setMembers] = useState<Membership[]>([]);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [grants, setGrants] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
+  // poslední načtený stav (stale-while-revalidate, lib/viewCache)
+  const cacheKey = `inbox:${wsId}:${userId}`;
+  const cached = cacheGet<{
+    tasks: Task[];
+    members: Membership[];
+    contacts: Contact[];
+    grants: string[];
+  }>(cacheKey);
+  const [tasks, setTasks] = useState<Task[]>(cached?.tasks ?? []);
+  const [members, setMembers] = useState<Membership[]>(cached?.members ?? []);
+  const [contacts, setContacts] = useState<Contact[]>(cached?.contacts ?? []);
+  const [grants, setGrants] = useState<Set<string>>(new Set(cached?.grants ?? []));
+  const [loading, setLoading] = useState(!cached);
   const [openTask, setOpenTask] = useState<Task | null>(null);
   // rozpracované třídění — ref kvůli merge v load() bez závodu se setState
   const sortRef = useRef<Record<string, SortState>>({});
@@ -118,11 +127,20 @@ export default function InboxView({
       );
       return [...fresh, ...inProgress];
     });
-    setMembers((memRes.data as unknown as Membership[]) ?? []);
-    setGrants(new Set((grantRes.data ?? []).map((r) => r.target_id as string)));
-    setContacts((cRes.data as Contact[]) ?? []);
+    const nextMembers = (memRes.data as unknown as Membership[]) ?? [];
+    const nextGrants = (grantRes.data ?? []).map((r) => r.target_id as string);
+    const nextContacts = (cRes.data as Contact[]) ?? [];
+    setMembers(nextMembers);
+    setGrants(new Set(nextGrants));
+    setContacts(nextContacts);
     setLoading(false);
-  }, [supabase, wsId, userId, canDelegate]);
+    cacheSet(cacheKey, {
+      tasks: fresh,
+      members: nextMembers,
+      contacts: nextContacts,
+      grants: nextGrants,
+    });
+  }, [supabase, wsId, userId, canDelegate, cacheKey]);
 
   useEffect(() => {
     load();

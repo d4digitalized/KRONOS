@@ -1,66 +1,42 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser, getWsContext, type SessionUser } from "@/lib/session";
 
-export async function requireWsAdmin(wsId: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+// Všechny helpery stojí nad getWsContext() — kontext firmy se v rámci
+// jednoho požadavku počítá jednou a sdílí ho layout i stránka.
 
-  const { data: isAdmin } = await supabase.rpc("is_ws_admin", { ws: wsId });
-  if (!isAdmin) redirect(`/w/${wsId}`);
-  return user;
+export async function requireWsAdmin(wsId: string): Promise<SessionUser> {
+  const ctx = await getWsContext(wsId);
+  if (!ctx) redirect("/login");
+  if (!ctx.isAdmin) redirect(`/w/${wsId}`);
+  return ctx.user;
 }
 
 /** Pustí kteréhokoli člena workspace; vrací i příznak, zda je admin,
     aby stránka mohla omezit rozsah/akce běžnému uživateli. */
 export async function requireWsMember(wsId: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const { data: isMember } = await supabase.rpc("is_ws_member", { ws: wsId });
-  if (!isMember) redirect("/");
-
-  const { data: isAdmin } = await supabase.rpc("is_ws_admin", { ws: wsId });
-  return { user, isAdmin: !!isAdmin };
+  const ctx = await getWsContext(wsId);
+  if (!ctx) redirect("/login");
+  if (!ctx.isMember) redirect("/");
+  return { user: ctx.user, isAdmin: ctx.isAdmin };
 }
 
 /** Člen „jen měření času" (time_only) patří na /time — obsahové stránky
     firmy ho tam přesměrují. Adminům se flag ignoruje. Volat na začátku
-    každé /w/[wsId]/* stránky kromě /time. */
+    každé /w/[wsId]/* stránky kromě /time. Vrací celý kontext firmy, ať
+    stránka nemusí nic dalšího dotahovat. */
 export async function redirectTimeOnlyMember(wsId: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const [{ data: profile }, { data: membership }] = await Promise.all([
-    supabase.from("profiles").select("is_super_admin").eq("id", user.id).single(),
-    supabase
-      .from("workspace_members")
-      .select("role, time_only, percent_report")
-      .eq("workspace_id", wsId)
-      .eq("user_id", user.id)
-      .maybeSingle(),
-  ]);
-  const isAdmin = (profile?.is_super_admin ?? false) || membership?.role === "admin";
-  if (!isAdmin && (membership?.time_only || membership?.percent_report))
-    redirect(`/w/${wsId}/time`);
-  return user;
+  const ctx = await getWsContext(wsId);
+  if (!ctx) redirect("/login");
+  if (ctx.timeOnly) redirect(`/w/${wsId}/time`);
+  return ctx;
 }
 
-export async function requireSuperAdmin() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export async function requireSuperAdmin(): Promise<SessionUser> {
+  const user = await getSessionUser();
   if (!user) redirect("/login");
 
+  const supabase = await createClient();
   const { data: profile } = await supabase
     .from("profiles")
     .select("is_super_admin")

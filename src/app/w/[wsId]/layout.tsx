@@ -1,11 +1,10 @@
 import { notFound, redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getWsContext } from "@/lib/session";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import TimerBar from "@/components/TimerBar";
 import NewTaskFab from "@/components/NewTaskFab";
 import ProjectColorsLoader from "@/components/ProjectColorsLoader";
-import type { Workspace, WorkspaceOption } from "@/lib/types";
 
 export default async function WorkspaceLayout({
   children,
@@ -15,67 +14,26 @@ export default async function WorkspaceLayout({
   params: Promise<{ wsId: string }>;
 }) {
   const { wsId } = await params;
-  const supabase = await createClient();
+  // jeden sdílený dotaz na požadavek (React cache) — stránka pod layoutem
+  // dostane tentýž výsledek, nic nedotahuje znovu
+  const ctx = await getWsContext(wsId);
+  if (!ctx) redirect("/login");
+  if (!ctx.ws) notFound();
+
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const [{ data: profile }, { data: ws }, { data: memberships }, { count: grantCount }] =
-    await Promise.all([
-      supabase.from("profiles").select("*").eq("id", user.id).single(),
-      supabase.from("workspaces").select("id, name").eq("id", wsId).maybeSingle(),
-      supabase
-        .from("workspace_members")
-        .select("*, workspaces(id, name)")
-        .eq("user_id", user.id),
-      supabase
-        .from("assign_grants")
-        .select("target_id", { count: "exact", head: true })
-        .eq("workspace_id", wsId)
-        .eq("user_id", user.id),
-    ]);
-
-  if (!ws) notFound();
-
-  const membership = memberships?.find((m) => m.workspace_id === wsId);
-  const isSuperAdmin = profile?.is_super_admin ?? false;
-  const isAdmin = isSuperAdmin || membership?.role === "admin";
-  // funkce navíc: adminům vždy, členům dle flagů odemčených adminem
-  const canDelegate = isAdmin || !!membership?.can_delegate;
-  const canHide = isAdmin || !!membership?.can_hide;
-  // Task force: kdo může zadávat i jiným (admin / aspoň jeden grant)
-  const canTaskforce = isAdmin || (grantCount ?? 0) > 0;
-  // Poznámky: osobní scratchpad, jen komu to admin zapnul (i adminovi sobě)
-  const canNotes = !!membership?.can_notes;
-  // účet propojený s Googlem — jméno v patičce svítí zeleně
-  const googleLinked = (user.identities ?? []).some(
-    (i) => i.provider === "google"
-  );
-  // výkaz v %: místo timeru procentní denní výkaz (zahrnuje osekané rozhraní)
-  const percentReport = !isAdmin && !!membership?.percent_report;
-  // „jen měření času": osekané rozhraní (adminům se flagy ignorují)
-  const timeOnly = (!isAdmin && !!membership?.time_only) || percentReport;
-
-  // ke každé mé firmě i práva v ní — přepínač v „Nový úkol" je potřebuje,
-  // canDelegate/canHide se firmu od firmy liší
-  const wsOptions: WorkspaceOption[] = (memberships ?? [])
-    .filter((m) => m.workspaces)
-    .map((m) => {
-      const w = m.workspaces as unknown as Workspace;
-      const wsAdmin = isSuperAdmin || m.role === "admin";
-      return {
-        id: w.id,
-        name: w.name,
-        canDelegate: wsAdmin || !!m.can_delegate,
-        canHide: wsAdmin || !!m.can_hide,
-      };
-    });
-  // super-admin může být na firmě, kde členem není
-  if (!wsOptions.some((w) => w.id === ws.id))
-    wsOptions.unshift({ id: ws.id, name: ws.name, canDelegate, canHide });
-
-  const workspaces: Workspace[] = wsOptions.map(({ id, name }) => ({ id, name }));
+    user,
+    profile,
+    isAdmin,
+    isSuperAdmin,
+    canDelegate,
+    canTaskforce,
+    canNotes,
+    percentReport,
+    timeOnly,
+    wsOptions,
+    workspaces,
+  } = ctx;
+  const userName = profile?.full_name || profile?.email || "";
 
   return (
     <div className="flex min-h-screen bg-paper">
@@ -89,9 +47,9 @@ export default async function WorkspaceLayout({
         canNotes={canNotes}
         timeOnly={timeOnly}
         userId={user.id}
-        userName={profile?.full_name || profile?.email || ""}
+        userName={userName}
         userProfile={profile}
-        googleLinked={googleLinked}
+        googleLinked={user.googleLinked}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         {/* výkaz v %: timer schovat — záznamy generuje procentní výkaz */}
@@ -112,9 +70,9 @@ export default async function WorkspaceLayout({
         canNotes={canNotes}
         timeOnly={timeOnly}
         userId={user.id}
-        userName={profile?.full_name || profile?.email || ""}
+        userName={userName}
         userProfile={profile}
-        googleLinked={googleLinked}
+        googleLinked={user.googleLinked}
       />
       {/* „jen měření času": žádné zakládání úkolů */}
       {!timeOnly && (

@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { getWsContext } from "@/lib/session";
 import MyTimeView from "@/components/MyTimeView";
 import PercentReportView from "@/components/PercentReportView";
 
@@ -8,21 +9,13 @@ export default async function MyTimePage({
   params: Promise<{ wsId: string }>;
 }) {
   const { wsId } = await params;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const ctx = await getWsContext(wsId);
+  if (!ctx) redirect("/login");
 
   // režim „Výkaz v %": místo timeru a ručních záznamů procentní denní výkaz
-  const { data: membership } = await supabase
-    .from("workspace_members")
-    .select("percent_report")
-    .eq("workspace_id", wsId)
-    .eq("user_id", user!.id)
-    .maybeSingle();
-  if (membership?.percent_report) {
-    return <PercentReportView wsId={wsId} userId={user!.id} />;
+  if (ctx.membership?.percent_report) {
+    return <PercentReportView wsId={wsId} userId={ctx.user.id} />;
   }
 
-  return <MyTimeView wsId={wsId} userId={user!.id} />;
+  return <MyTimeView wsId={wsId} userId={ctx.user.id} />;
 }

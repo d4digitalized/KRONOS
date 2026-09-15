@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Klientská cache segmentů: přepnutí mezi sekcemi firmy do 30 s od
+    // poslední návštěvy nejde znovu na server (výchozí 0 = každé kliknutí
+    // čeká na render stránky). Data si view stejně dotahují samy a mají
+    // vlastní stale-while-revalidate cache (lib/viewCache).
+    staleTimes: { dynamic: 30, static: 300 },
+  },
   async redirects() {
     // Stará doména → kronos.digitalized.cz se zachováním cesty i query.
     return [
