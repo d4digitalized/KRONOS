@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createUserClient } from "./auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { syncTaskCalendarCore } from "@/lib/calendarSync";
 import { posBetween } from "@/lib/position";
 import { entrySeconds } from "@/lib/format";
@@ -59,6 +60,52 @@ function clientFor(extra: Extra) {
   const userId = extra.authInfo?.extra?.userId as string | undefined;
   if (!userId) throw new Error("Chybí identita uživatele (neplatný token).");
   return { client: createUserClient(userId), userId };
+}
+
+/** Stejná pravidla jako v kartě: „Čekám na" a duch řešitel smí admin
+    workspace, super-admin nebo člen s právem delegovat. */
+async function canDelegateIn(
+  client: ReturnType<typeof createUserClient>,
+  userId: string,
+  workspaceId: string
+): Promise<boolean> {
+  const [{ data: me }, { data: membership }] = await Promise.all([
+    client.from("profiles").select("is_super_admin").eq("id", userId).single(),
+    client
+      .from("workspace_members")
+      .select("role, can_delegate")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
+  return !!me?.is_super_admin || membership?.role === "admin" || !!membership?.can_delegate;
+}
+
+/** Kontakt podle jména (bez ohledu na velikost písmen); když není, založí se. */
+async function findOrCreateContact(
+  client: ReturnType<typeof createUserClient>,
+  userId: string,
+  workspaceId: string,
+  name: string
+): Promise<{ id: string; created: boolean } | { error: string }> {
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "Jméno kontaktu nesmí být prázdné." };
+  const { data: found } = await client
+    .from("contacts")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .ilike("name", trimmed)
+    .limit(1)
+    .maybeSingle();
+  if (found) return { id: found.id as string, created: false };
+  const { data: created, error } = await client
+    .from("contacts")
+    .insert({ workspace_id: workspaceId, name: trimmed, created_by: userId })
+    .select("id")
+    .single();
+  if (error || !created)
+    return { error: "Kontakt se nepodařilo založit: " + (error?.message ?? "") };
+  return { id: created.id as string, created: true };
 }
 
 const ok = (data: unknown) => ({
@@ -456,6 +503,195 @@ export function registerTools(server: McpServer): void {
   );
 
   server.registerTool(
+    "search_people",
+    {
+      title: "Hledat lidi",
+      description:
+        "Najde lidi ve workspace podle části jména, e-mailu nebo @tagu: členy Kronosu (lze je přiřadit jako řešitele — assign_task) i externí kontakty (duchy — set_waiting, assign_contact). Prázdný dotaz vrátí všechny.",
+      inputSchema: {
+        workspace_id: z.string(),
+        query: z.string().optional().describe("část jména, e-mailu nebo tagu"),
+      },
+    },
+    async ({ workspace_id, query }, extra) => {
+      const { client } = clientFor(extra);
+      const q = (query ?? "").trim().toLowerCase();
+      const hit = (...vals: (string | null | undefined)[]) =>
+        !q || vals.some((v) => (v ?? "").toLowerCase().includes(q));
+      const [memRes, conRes] = await Promise.all([
+        client
+          .from("workspace_members")
+          .select("user_id, role, profiles(full_name, email, tag_name)")
+          .eq("workspace_id", workspace_id),
+        client
+          .from("contacts")
+          .select("id, name, email, note")
+          .eq("workspace_id", workspace_id)
+          .order("name"),
+      ]);
+      if (memRes.error) return fail(memRes.error.message);
+      if (conRes.error) return fail(conRes.error.message);
+      type Mem = {
+        user_id: string;
+        role: string;
+        profiles: { full_name: string; email: string; tag_name: string | null } | null;
+      };
+      const members = ((memRes.data ?? []) as unknown as Mem[])
+        .filter((m) => hit(m.profiles?.full_name, m.profiles?.email, m.profiles?.tag_name))
+        .map((m) => ({
+          user_id: m.user_id,
+          name: m.profiles?.full_name || m.profiles?.email || "",
+          email: m.profiles?.email ?? "",
+          tag: m.profiles?.tag_name || null,
+          role: m.role,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, "cs"));
+      const contacts = (conRes.data ?? [])
+        .filter((c) => hit(c.name as string, c.email as string))
+        .map((c) => ({
+          contact_id: c.id,
+          name: c.name,
+          email: c.email,
+          note: c.note,
+        }));
+      return ok({ members, contacts });
+    }
+  );
+
+  server.registerTool(
+    "create_contact",
+    {
+      title: "Založit externí kontakt",
+      description:
+        "Založí externího člověka (mimo Kronos, „duch“) ve workspace — lze na něj čekat (set_waiting) nebo ho dát jako řešitele (assign_contact). Když kontakt se stejným jménem existuje, vrátí ten.",
+      inputSchema: {
+        workspace_id: z.string(),
+        name: z.string(),
+        email: z.string().optional(),
+        note: z.string().optional(),
+      },
+    },
+    async ({ workspace_id, name, email, note }, extra) => {
+      const { client, userId } = clientFor(extra);
+      const c = await findOrCreateContact(client, userId, workspace_id, name);
+      if ("error" in c) return fail(c.error);
+      if (c.created && (email || note)) {
+        await client
+          .from("contacts")
+          .update({ ...(email ? { email } : {}), ...(note ? { note } : {}) })
+          .eq("id", c.id);
+      }
+      return ok({
+        contact_id: c.id,
+        name: name.trim(),
+        created: c.created,
+        note: c.created ? undefined : "Kontakt s tímto jménem už existoval — použit stávající.",
+      });
+    }
+  );
+
+  server.registerTool(
+    "assign_contact",
+    {
+      title: "Duch řešitel",
+      description:
+        "Přiřadí externí kontakt (ducha) jako řešitele úkolu — duch úkol nevidí a nedostává notifikace, odškrtává za něj zadavatel. Zadej contact_id nebo contact_name (dohledá / založí). remove=true přiřazení odebere. Smí admin nebo člen s právem delegovat.",
+      inputSchema: {
+        task_id: z.string(),
+        contact_id: z.string().optional(),
+        contact_name: z.string().optional(),
+        remove: z.boolean().optional().describe("true = odebrat ducha z úkolu"),
+      },
+    },
+    async ({ task_id, contact_id, contact_name, remove }, extra) => {
+      const { client, userId } = clientFor(extra);
+      if (!contact_id && !contact_name?.trim())
+        return fail("Zadej contact_id nebo contact_name.");
+      const { data: task, error: te } = await client
+        .from("tasks")
+        .select("id, title, workspace_id")
+        .eq("id", task_id)
+        .single();
+      if (te || !task) return fail("Úkol nenalezen nebo k němu nemáš přístup.");
+      if (!(await canDelegateIn(client, userId, task.workspace_id)))
+        return fail("Ducha jako řešitele smí nastavit jen admin nebo člen s právem delegovat.");
+      let cid = contact_id ?? null;
+      if (!cid) {
+        const c = await findOrCreateContact(client, userId, task.workspace_id, contact_name!);
+        if ("error" in c) return fail(c.error);
+        cid = c.id;
+      }
+      if (remove) {
+        const { error } = await client
+          .from("task_contact_assignees")
+          .delete()
+          .eq("task_id", task_id)
+          .eq("contact_id", cid);
+        return error ? fail(error.message) : ok({ task_id, contact_id: cid, removed: true });
+      }
+      const { error } = await client
+        .from("task_contact_assignees")
+        .upsert({ task_id, contact_id: cid }, { onConflict: "task_id,contact_id" });
+      if (error)
+        return fail("Přiřazení se nezdařilo — kontakt musí být ze stejné firmy jako úkol. (" + error.message + ")");
+      return ok({ task_id, title: task.title, contact_id: cid, assigned: true });
+    }
+  );
+
+  server.registerTool(
+    "invite_member",
+    {
+      title: "Pozvat člena do workspace",
+      description:
+        "Přidá člověka do workspace podle e-mailu. Existující účet Kronosu se přidá rovnou; nový dostane pozvánkový e-mail (bez vlastního SMTP Supabase pošle jen ~2 e-maily za hodinu). Smí jen admin workspace; roli admin smí dát jen super-admin.",
+      inputSchema: {
+        workspace_id: z.string(),
+        email: z.string(),
+        role: z.enum(["member", "admin"]).optional().describe("výchozí member"),
+      },
+    },
+    async ({ workspace_id, email, role }, extra) => {
+      const { client } = clientFor(extra);
+      const { data: isAdmin } = await client.rpc("is_ws_admin", { ws: workspace_id });
+      if (!isAdmin) return fail("Členy smí přidávat jen admin workspace.");
+      const normalized = email.trim().toLowerCase();
+      if (!normalized.includes("@")) return fail("Neplatný e-mail.");
+
+      // účet podle e-mailu hledá service-role klient (profil mimo společné
+      // workspace není přes RLS vidět); pozvánku posílá Supabase Auth
+      const admin = createAdminClient();
+      const { data: existing } = await admin
+        .from("profiles")
+        .select("id")
+        .eq("email", normalized)
+        .maybeSingle();
+      let targetId = existing?.id as string | undefined;
+      let invited = false;
+      if (!targetId) {
+        const site = process.env.NEXT_PUBLIC_SITE_URL ?? "https://kronos.digitalized.cz";
+        const { data, error } = await admin.auth.admin.inviteUserByEmail(normalized, {
+          redirectTo: `${site}/auth/confirm`,
+        });
+        if (error || !data.user)
+          return fail(
+            "Pozvánkový e-mail se nepodařilo odeslat (limit Supabase bez SMTP ~2/h). " +
+              (error?.message ?? "")
+          );
+        targetId = data.user.id;
+        invited = true;
+      }
+      const { error: me } = await client
+        .from("workspace_members")
+        .insert({ workspace_id, user_id: targetId, role: role ?? "member" });
+      if (me) {
+        if (me.code === "23505") return ok({ user_id: targetId, invited, added: false, note: "Už je členem workspace." });
+        return fail("Přidání se nezdařilo — roli admin může dát jen super-admin. (" + me.message + ")");
+      }
+      return ok({ user_id: targetId, email: normalized, role: role ?? "member", invited, added: true });
+    }
+  );
+
+  server.registerTool(
     "list_contacts",
     {
       title: "Externí kontakty",
@@ -514,42 +750,14 @@ export function registerTools(server: McpServer): void {
         .single();
       if (te || !task) return fail("Úkol nenalezen nebo k němu nemáš přístup.");
 
-      // stejná pravidla jako v kartě: admin workspace nebo právo delegovat
-      const [{ data: me }, { data: membership }] = await Promise.all([
-        client.from("profiles").select("is_super_admin").eq("id", userId).single(),
-        client
-          .from("workspace_members")
-          .select("role, can_delegate")
-          .eq("workspace_id", task.workspace_id)
-          .eq("user_id", userId)
-          .maybeSingle(),
-      ]);
-      const canDelegate =
-        !!me?.is_super_admin || membership?.role === "admin" || !!membership?.can_delegate;
-      if (!canDelegate)
+      if (!(await canDelegateIn(client, userId, task.workspace_id)))
         return fail("„Čekám na“ smí nastavit jen admin nebo člen s právem delegovat.");
 
-      // kontakt podle jména: dohledat (bez ohledu na velikost písmen), jinak založit
       let contactId = contact_id ?? null;
       if (contact_name?.trim()) {
-        const name = contact_name.trim();
-        const { data: found } = await client
-          .from("contacts")
-          .select("id, name")
-          .eq("workspace_id", task.workspace_id)
-          .ilike("name", name)
-          .limit(1)
-          .maybeSingle();
-        if (found) contactId = found.id;
-        else {
-          const { data: created, error: ce } = await client
-            .from("contacts")
-            .insert({ workspace_id: task.workspace_id, name, created_by: userId })
-            .select("id")
-            .single();
-          if (ce || !created) return fail("Kontakt se nepodařilo založit: " + (ce?.message ?? ""));
-          contactId = created.id;
-        }
+        const c = await findOrCreateContact(client, userId, task.workspace_id, contact_name);
+        if ("error" in c) return fail(c.error);
+        contactId = c.id;
       }
 
       const { data: existing } = await client

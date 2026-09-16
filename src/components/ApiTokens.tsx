@@ -91,8 +91,9 @@ export default function ApiTokens() {
           Vytvoř token a přidej ho do Clauda jako custom connector s adresou{" "}
           <code className="rounded bg-ink-soft/10 px-1 py-0.5">{mcpUrl}</code>. Claude
           pak umí pod tvým jménem procházet nástěnky, zakládat, dokončovat a přesouvat
-          úkoly, přiřazovat řešitele, komentovat a měřit či vykazovat čas — jen v
-          projektech a výkazech, které sám vidíš.
+          úkoly, přiřazovat řešitele i externí kontakty, nastavovat „Čekám na“,
+          komentovat, měřit či vykazovat čas a zvát členy — jen v projektech a
+          výkazech, které sám vidíš.
         </p>
 
         {fresh && (
