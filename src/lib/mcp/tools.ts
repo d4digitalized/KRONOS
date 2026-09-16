@@ -281,13 +281,39 @@ export function registerTools(server: McpServer): void {
       const { data, error } = await client
         .from("tasks")
         .select(
-          "id, title, description, due_date, priority, completed_at, planned_start, planned_end, projects(name), task_assignees(user_id, profiles(full_name))"
+          "id, title, description, due_date, priority, completed_at, on_hold, planned_start, planned_end, projects(name), task_assignees(user_id, profiles(full_name)), task_followups(waiting_user_id, waiting_contact_id, waiting_since, waiting_until, profiles!task_followups_waiting_user_id_fkey(full_name), contacts(name))"
         )
         .eq("id", task_id)
         .single();
       if (error || !data)
         return fail("Úkol nenalezen nebo k němu nemáš přístup.");
-      return ok(data);
+      // „Čekám na" srozumitelně: na koho, od kdy, slíbeno do kdy
+      const raw = (data as { task_followups?: unknown }).task_followups;
+      const fu = (Array.isArray(raw) ? raw[0] : raw) as
+        | {
+            waiting_user_id: string | null;
+            waiting_contact_id: string | null;
+            waiting_since: string;
+            waiting_until: string | null;
+            profiles: { full_name: string } | null;
+            contacts: { name: string } | null;
+          }
+        | null
+        | undefined;
+      const { task_followups: _drop, ...rest } = data as Record<string, unknown>;
+      void _drop;
+      return ok({
+        ...rest,
+        waiting: fu
+          ? {
+              on: fu.profiles?.full_name ?? fu.contacts?.name ?? null,
+              user_id: fu.waiting_user_id,
+              contact_id: fu.waiting_contact_id,
+              since: fu.waiting_since,
+              until: fu.waiting_until,
+            }
+          : null,
+      });
     }
   );
 
@@ -426,6 +452,184 @@ export function registerTools(server: McpServer): void {
         .is("completed_at", null)
         .order("due_date", { nullsFirst: false });
       return error ? fail(error.message) : ok(data);
+    }
+  );
+
+  server.registerTool(
+    "list_contacts",
+    {
+      title: "Externí kontakty",
+      description:
+        "Externí kontakty (lidé mimo Kronos) ve workspace — na ně lze v set_waiting čekat přes contact_id.",
+      inputSchema: { workspace_id: z.string() },
+    },
+    async ({ workspace_id }, extra) => {
+      const { client } = clientFor(extra);
+      const { data, error } = await client
+        .from("contacts")
+        .select("id, name, email, note")
+        .eq("workspace_id", workspace_id)
+        .order("name");
+      return error ? fail(error.message) : ok(data);
+    }
+  );
+
+  server.registerTool(
+    "set_waiting",
+    {
+      title: "Nastavit „Čekám na“",
+      description:
+        "Nastaví u úkolu follow-up „Čekám na“: na koho se čeká (user_id člena, contact_id externího kontaktu, nebo contact_name — kontakt se dohledá podle jména, případně založí), od kdy (waiting_since) a do kdy slíbil dodat (waiting_until). Bez osoby vznikne čekání „bez osoby“ (jako přetažení do Waiting on). Existující čekání se upraví. Smí admin nebo člen s právem delegovat — jako v kartě. Úkol se tím přesune do sloupce Waiting on. Zrušení: clear_waiting.",
+      inputSchema: {
+        task_id: z.string(),
+        user_id: z.string().optional().describe("člen workspace, na kterého se čeká"),
+        contact_id: z.string().optional().describe("externí kontakt (list_contacts)"),
+        contact_name: z
+          .string()
+          .optional()
+          .describe("jméno externího kontaktu; když neexistuje, založí se"),
+        waiting_since: z.string().optional().describe("od kdy čekám, YYYY-MM-DD (výchozí dnes)"),
+        waiting_until: z
+          .string()
+          .optional()
+          .describe("do kdy slíbil/a dodat, YYYY-MM-DD; prázdný řetězec smaže"),
+      },
+    },
+    async (
+      { task_id, user_id, contact_id, contact_name, waiting_since, waiting_until },
+      extra
+    ) => {
+      const { client, userId } = clientFor(extra);
+      const targets = [user_id, contact_id, contact_name].filter(Boolean).length;
+      if (targets > 1) return fail("Zadej jen jedno: user_id, contact_id nebo contact_name.");
+      if (waiting_since && !DATE_RE.test(waiting_since))
+        return fail("Formát waiting_since: YYYY-MM-DD.");
+      if (waiting_until && !DATE_RE.test(waiting_until))
+        return fail("Formát waiting_until: YYYY-MM-DD.");
+
+      const { data: task, error: te } = await client
+        .from("tasks")
+        .select("id, title, workspace_id")
+        .eq("id", task_id)
+        .single();
+      if (te || !task) return fail("Úkol nenalezen nebo k němu nemáš přístup.");
+
+      // stejná pravidla jako v kartě: admin workspace nebo právo delegovat
+      const [{ data: me }, { data: membership }] = await Promise.all([
+        client.from("profiles").select("is_super_admin").eq("id", userId).single(),
+        client
+          .from("workspace_members")
+          .select("role, can_delegate")
+          .eq("workspace_id", task.workspace_id)
+          .eq("user_id", userId)
+          .maybeSingle(),
+      ]);
+      const canDelegate =
+        !!me?.is_super_admin || membership?.role === "admin" || !!membership?.can_delegate;
+      if (!canDelegate)
+        return fail("„Čekám na“ smí nastavit jen admin nebo člen s právem delegovat.");
+
+      // kontakt podle jména: dohledat (bez ohledu na velikost písmen), jinak založit
+      let contactId = contact_id ?? null;
+      if (contact_name?.trim()) {
+        const name = contact_name.trim();
+        const { data: found } = await client
+          .from("contacts")
+          .select("id, name")
+          .eq("workspace_id", task.workspace_id)
+          .ilike("name", name)
+          .limit(1)
+          .maybeSingle();
+        if (found) contactId = found.id;
+        else {
+          const { data: created, error: ce } = await client
+            .from("contacts")
+            .insert({ workspace_id: task.workspace_id, name, created_by: userId })
+            .select("id")
+            .single();
+          if (ce || !created) return fail("Kontakt se nepodařilo založit: " + (ce?.message ?? ""));
+          contactId = created.id;
+        }
+      }
+
+      const { data: existing } = await client
+        .from("task_followups")
+        .select("task_id")
+        .eq("task_id", task_id)
+        .maybeSingle();
+
+      const target =
+        targets > 0
+          ? { waiting_user_id: user_id ?? null, waiting_contact_id: contactId }
+          : {};
+      const dates = {
+        ...(waiting_since ? { waiting_since } : {}),
+        ...(waiting_until !== undefined ? { waiting_until: waiting_until || null } : {}),
+      };
+
+      let error;
+      if (existing) {
+        ({ error } = await client
+          .from("task_followups")
+          .update({ ...target, ...dates })
+          .eq("task_id", task_id));
+      } else {
+        ({ error } = await client.from("task_followups").insert({
+          task_id,
+          workspace_id: task.workspace_id,
+          created_by: userId,
+          waiting_user_id: user_id ?? null,
+          waiting_contact_id: contactId,
+          ...dates,
+        }));
+      }
+      if (error) return fail("Čekání se nepodařilo nastavit: " + error.message);
+      // uspaný úkol se čekáním probudí (jako na nástěnce)
+      await client.from("tasks").update({ on_hold: false }).eq("id", task_id);
+
+      const { data: fu } = await client
+        .from("task_followups")
+        .select(
+          "waiting_since, waiting_until, profiles!task_followups_waiting_user_id_fkey(full_name), contacts(name)"
+        )
+        .eq("task_id", task_id)
+        .maybeSingle();
+      const f = fu as unknown as {
+        waiting_since: string;
+        waiting_until: string | null;
+        profiles: { full_name: string } | null;
+        contacts: { name: string } | null;
+      } | null;
+      return ok({
+        task_id,
+        title: task.title,
+        waiting: {
+          on: f?.profiles?.full_name ?? f?.contacts?.name ?? null,
+          since: f?.waiting_since ?? null,
+          until: f?.waiting_until ?? null,
+        },
+        updated: !!existing,
+      });
+    }
+  );
+
+  server.registerTool(
+    "clear_waiting",
+    {
+      title: "Zrušit „Čekám na“",
+      description:
+        "Zruší follow-up „Čekám na“ u úkolu — úkol se vrátí z Waiting on do svého sloupce.",
+      inputSchema: { task_id: z.string() },
+    },
+    async ({ task_id }, extra) => {
+      const { client } = clientFor(extra);
+      const { data, error } = await client
+        .from("task_followups")
+        .delete()
+        .eq("task_id", task_id)
+        .select("task_id");
+      if (error) return fail("Zrušení čekání se nezdařilo: " + error.message);
+      return ok({ task_id, cleared: (data ?? []).length > 0 });
     }
   );
 
